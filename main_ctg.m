@@ -4,20 +4,38 @@
 % pitch_array = linspace(-pi, pi, 10)
 % yaw_array = linspace(0, pi, 10);
 
+% ╭─────────────────────────────────────╮
+% │ ╭─────────────────────────────────╮ │
+% │ │             Options             │ │
+% │ ╰─────────────────────────────────╯ │
+% ╰─────────────────────────────────────╯
+clear();
+% Create a random 2x2 matrix to define \dot x = A_c x.
+A_cont = rand(2) - 0.5;
+% Create a random 2x2 matrix to define x^+ = A_d x.
+A_disc = rand(2) - 0.5;
+n_slices = 40;
+
+
 % ╭────────────────────────────────────────╮
 % │ ╭────────────────────────────────────╮ │
 % │ │             Given Data             │ │
 % │ ╰────────────────────────────────────╯ │
 % ╰────────────────────────────────────────╯
-% Create a random 2x2 matrix to define \dot x = Ax.
-A = rand(2) - 0.5;
-% ⋘────────── Some interesting choices of A ──────────⋙
-% # This A gives a very large slices in the state space. One of its eigenvalues is -0.007, so the problem likely arises from the nearly zero eigenvalue.
-% A =
+
+flow_set = ConvexPolyhedron.fromConvexHull([[-1; 0], [0; 0], [1; 0.5]]);
+% assert(flow_set, "error message format string", error message parameters)
+
+jump_set        = 1e3 * ConvexPolyhedron.fromConvexHull([[1; 0], [0; 0], [1; -0.01]]);
+jump_set_image  = 1e3 * A_disc * jump_set;
+
+% ⋘────────── Some interesting choices of A_cont ──────────⋙
+% # This A_cont gives a very large slices in the state space. One of its eigenvalues is -0.007, so the problem likely arises from the nearly zero eigenvalue.
+% A_cont =
 %     0.4027   -0.0091
 %     0.4448   -0.0107
-% # This A creates an interesting alignment, with the flow pointing nearly exactly the opposite direction as the state cone.
-% A = [
+% # This A_cont creates an interesting alignment, with the flow pointing nearly exactly the opposite direction as the state cone.
+% A_cont = [
 % 	  -0.3103,   -0.3524;
 % 	  -0.0050,   -0.4450
 % ]
@@ -28,12 +46,22 @@ A = rand(2) - 0.5;
 % │ ╰────────────────────────────────────────╯ │
 % ╰────────────────────────────────────────────╯
 
-n_slices = 130;
-conical_partition = ConicalPartition(A, "nSlices", n_slices);
-conic_abstraction = ConicAbstraction(conical_partition);
+conical_partition = ConicalPartition(A_cont, "nSlices", n_slices);
+[jump_set_nonempty_intersection_ndxs, jump_set_in_regions] = conical_partition.getStateRegionIntersections(jump_set);
+[jump_set_image_nonempty_intersection_ndxs, jump_set_image_in_regions] = conical_partition.getStateRegionIntersections(jump_set_image);
+jump_set_nonempty_intersection_ndxs
+jump_set_image_nonempty_intersection_ndxs
+% jump_set_image
+assert(~isempty(jump_set_nonempty_intersection_ndxs),       "No regions were found to intersect with the jump set. This should not happen because the sets are cones, but is possible because we stored them as large--but bounded polytopes.");
+assert(~isempty(jump_set_image_nonempty_intersection_ndxs), "No regions were found to intersect with the image of the jump set. This should not happen because the sets are cones, but is possible because we stored them as large--but bounded polytopes.");
+return
+
+
+conic_abstraction = ConicAbstraction(conical_partition, flow_set);
 graph = conic_abstraction.graph;
 % cyclebasis(graph)
 
+return
 % Get all of the fundamental cycles in the graph. 
 [cycles, edgecycles] = allcycles(graph);
 % p = plot(graph);
@@ -58,7 +86,7 @@ v0v_next_ndxs = conical_partition.getConjoiningRegionsIndices(v0_ndx, v_next_ndx
 D_prev = conical_partition.getDerivativeCone(v0v_prev_ndxs);
 C_prev = conical_partition.getStateCone(v0v_prev_ndxs);
 R_prev = (v0 + 1e3 * D_prev);
-R_prev.removeVertex(v0)
+% R_prev.removeVertex(v0);
 % disp("Intersection (R_" + v0v_prev_ndxs + " ∩ v_" + v_prev_ndx + "): ")
 % disp(R_prev.intersectRay(v_prev))
 
@@ -66,24 +94,24 @@ R_prev.removeVertex(v0)
 D_next = conical_partition.getDerivativeCone(v0v_next_ndxs);
 C_next = conical_partition.getStateCone(v0v_next_ndxs);
 R_next = (v0 + 1e3 * D_next);
-disp('is member')
-ismember(v0', R_next.vertices', 'rows')
-disp('is member with tolerance')
-[~, v0ndx] = ismembertol(v0', R_next.vertices', 'ByRows', true);
+% disp('is member')
+% ismember(v0', R_next.vertices', 'rows')
+% disp('is member with tolerance')
+% [~, v0ndx] = ismembertol(v0', R_next.vertices', 'ByRows', true);
 
 % disp("Intersection (R_" + v0v_next_ndxs + " ∩ v_" + v_next_ndx + "):")
 % disp(R_next.intersectRay(v_next))
 % v_left = conical_partition.getStateSpaceVertex(v0_nbd_ndxs(1))
 % v_next = conical_partition.getStateSpaceVertex(v0_nbd_ndxs(2))
-% D.linearTransform(1e4 * A)
-% % (v0 + (1e4 * A) * D) | C
-% % (v0 + (1e4 * A) * D) | [[0; 0], 1000*v_left]
-% R = (v0 + (1e1 * A) * D);
+% D.linearTransform(1e4 * A_cont)
+% % (v0 + (1e4 * A_cont) * D) | C
+% % (v0 + (1e4 * A_cont) * D) | [[0; 0], 1000*v_left]
+% R = (v0 + (1e1 * A_cont) * D);
 
 % D = conical_partition.getDerivativeCone(v0_ndx);
 
 % D
-% (v0 + D.linearTransform(1e4 * A))
+% (v0 + D.linearTransform(1e4 * A_cont))
 % angle_array = conical_partition.stateVertexAngles;
 
 % cone_angle = angle_array(2) - angle_array(1);
@@ -91,13 +119,13 @@ disp('is member with tolerance')
 % ╭────────────────────────────────────╮
 % │             Plot Graph             │
 % ╰────────────────────────────────────╯
-pwintz.utils.namedFigure("Graph");
-clf
-hold on
-xlim(1.5*[-1, 1])
-ylim(1.5*[-1, 1])
-axis square
-pwintz.plot.unitCircle()
+pwintz.plots.NamedFigure("Graph");
+clf;
+hold on;
+xlim(1.5*[-1, 1]);
+ylim(1.5*[-1, 1]);
+axis square;
+pwintz.plots.plotUnitCircle();
 
 graph = conic_abstraction.graph;
 p = plot(graph, ...
@@ -130,21 +158,20 @@ p.EdgeColor = edge_color;
 for i = 1:min(numel(cycles), max_cycles_to_plot)
   color = colors{mod(i, length(colors)) + 1};
   lineStyle = lineStyles{mod(i, length(lineStyles)) + 1};
-  highlight(p,'Edges', edgecycles{i}, 'EdgeColor', color, 'LineStyle', lineStyle, 'NodeColor', color, 'LineWidth',1.5, 'MarkerSize',6)
+  highlight(p,'Edges', edgecycles{i}, 'EdgeColor', color, 'LineStyle', lineStyle, 'NodeColor', color, 'LineWidth',1.5, 'MarkerSize',6);
 end
 
 
-pwintz.utils.namedFigure("2D Vertices");
-clf
-hold on
-xlim(1.5*[-1, 1])
-ylim(1.5*[-1, 1])
-axis square
+pwintz.plots.NamedFigure("2D Vertices");
+clf;
+hold on;
+xlim(1.5*[-1, 1]);
+ylim(1.5*[-1, 1]);
+axis square;
 
-
-drawRay([0 0 v0'],     "Color", "black", 'LineWidth', 2, "DisplayName", "ray$(v_{" + v0_ndx + "})$")
-drawRay([0 0 v_prev'], "Color", 0.8*[0 0 1], 'LineWidth', 2, "DisplayName", "ray$(v_{" + v_prev_ndx + "})$")
-drawRay([0 0 v_next'], "Color", 0.8*[1 0 0], 'LineWidth', 2, "DisplayName", "ray$(v_{" + v_next_ndx + "})$")
+drawRay([0 0 v0'],     "Color", "black", 'LineWidth', 2, "DisplayName", "ray$(v_{" + v0_ndx + "})$");
+drawRay([0 0 v_prev'], "Color", 0.8*[0 0 1], 'LineWidth', 2, "DisplayName", "ray$(v_{" + v_prev_ndx + "})$");
+drawRay([0 0 v_next'], "Color", 0.8*[1 0 0], 'LineWidth', 2, "DisplayName", "ray$(v_{" + v_next_ndx + "})$");
 fillPolygon(C_prev.vertices', "FaceColor", 0.6*[0 0 1], "DisplayName", "$C_{" + v_prev_ndx + "}$", "LineWidth", 3);
 fillPolygon(C_next.vertices', "FaceColor", 0.6*[1 0 0], "DisplayName", "$C_{" + v_next_ndx + "}$", "LineWidth", 3);
 fillPolygon(R_prev.vertices', "FaceColor", 0.9*[0 0 1], "DisplayName", "$R_{" + v_prev_ndx + "}$", "LineWidth", 3);
@@ -175,24 +202,22 @@ end
 % fillPolygon(R_next.vertices' | , "DisplayName", "$R_{" + v_next_ndx + "}$", "LineWidth", 3);
 
 
-legend("interpreter", "latex", "fontSize", 12)
+legend("interpreter", "latex", "fontSize", 12);
 
 % ╭──────────────────────────────────────────────────╮
 % │             Plot Linear Vector Field             │
 % ╰──────────────────────────────────────────────────╯
-pwintz.plot.plotLinearVectorField(A, DisplayName="$x \mapsto Ax$");
+pwintz.plot.plotLinearVectorField(A_cont, DisplayName="$x \mapsto Ax$");
 
 % ⋘────────── Plot circle ──────────⋙
-pwintz.plot.unitCircle()
-
-
+pwintz.plots.plotUnitCircle();
 
 graph = conic_abstraction.graph;
 p = plot(graph, "XData", graph.Nodes.x, "YData", graph.Nodes.y);
 
 for i = 1:numel(cycles)
   color = colors{mod(i, length(colors)) + 1};
-  highlight(p,'Edges', edgecycles{i}, 'EdgeColor', color, 'NodeColor', color, 'LineWidth',1.5, 'MarkerSize',6)
+  highlight(p,'Edges', edgecycles{i}, 'EdgeColor', color, 'NodeColor', color, 'LineWidth',1.5, 'MarkerSize', 6);
 end
 
 return
@@ -226,7 +251,7 @@ for i = 1:conical_partition.nSlices
   % 2. Let b be the point where the bisection of v1, 0, v2 intersects the unit circle. 
   % 3. Then, v1, 0, b is a right triangle with 
   %   * Hypotenuse equal to r="circumscribe_radius"
-  %   * A side with length 1 that goes from the origin to b.
+  %   * A_cont side with length 1 that goes from the origin to b.
   %   * The adjacent angle is theta/2. 
   % Thus, cos(theta/2) = (hypotenuse)/(adjacent) = 1 / r. 
   % 4. Solving for r produces  r = sec(theta/2).
@@ -259,7 +284,7 @@ for i = 1:conical_partition.nSlices
   plotPolygon(R_in_C, color=[0.9 0.3 0], alpha=0.8)
 end
 
-% function result = linearTransform(A, vertices)
+% function result = linearTransform(A_cont, vertices)
 %   result = 
 % end
 

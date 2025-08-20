@@ -1,0 +1,11 @@
+tests_classes = ["TestConicAbstraction", "TestConicalPartition", "TestConvexPolyhedron"];
+test_functions = ["Test_angle2UnitVector","Test_angleDistance","Test_atan2","Test_range","Test_uniqueColumns"];
+runtests([tests_classes, test_functions]);
+% ConicAbstraction.test();
+% ConicalPartition.test();
+% ConvexPolyhedron.test();
+% test_angle2UnitVector;
+% test_angleDistance;
+% test_atan2;
+% test_range;
+% test_uniqueColumns;

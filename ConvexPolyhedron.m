@@ -1,19 +1,21 @@
 classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
-  
+  % Tests for this class are located in TestConvexPolyhedron and can be run using ConvexPolyhedron.test().
+
+
   properties(SetAccess = immutable)
     % Define instance constants.
-    vertices
+    vertices;
   end
   properties(SetAccess = immutable, GetAccess = private)
     % Define private variables.
     % first_vertex_ndx
     % center
-    n_vertices
+    n_vertices; % Use this.count() to get number vertices
   end
 
   methods(Static)
     function convex_polyhedron = fromConvexHull(points)
-      assert(size(points, 1) == 2, "Each column in 'points' must have two elements. Instead it had %d.", size(points, 1))
+      assert(size(points, 1) == 2, "Each column in 'points' must have two elements. Instead it had %d.", size(points, 1));
       indices = convhull(points', 'simplify', true);
       % The output of convhull is an array of indices from the "points" list such that the points are arranged counter-clockwise, with the first one repeated at the end. We trim the last index so that 
       vertices = points(:, indices(1:end-1));
@@ -22,15 +24,15 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
     
     % We define 
     function convex_polyhedron = fromPoint(point)
-      assert(iscolumn(point), "point must be a column")
-      assert(size(point, 1) == 2, "Each column in point must have two elements. Instead it had %d.", size(point, 1))
+      assert(iscolumn(point), "point must be a column");
+      assert(size(point, 1) == 2, "Each column in point must have two elements. Instead it had %d.", size(point, 1));
       convex_polyhedron = ConvexPolyhedron(point);
     end
     
     function convex_polyhedron = fromLine(p1, p2)
-      assert(iscolumn(p1), "p1 must be a column vector")
-      assert(iscolumn(p2), "p2 must be a column vector")
-      assert(norm(p1 - p2) > 0, "points must be distinct")
+      assert(iscolumn(p1), "p1 must be a column vector");
+      assert(iscolumn(p2), "p2 must be a column vector");
+      assert(norm(p1 - p2) > 0, "points must be distinct");
       convex_polyhedron = ConvexPolyhedron([p1, p2]);
     end
 
@@ -42,12 +44,16 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
     %   assert(norm(p1 - p2) > 0, "points must be distinct")
     %   convex_polyhedron = ConvexPolyhedron([p1, p2]);
     % end
+
+    function runTests(varargin) % Define convenience functions for running tests.
+      TestConvexPolyhedron.runTests(varargin{:});
+    end % End of function
   end
 
   methods(Access=private)
     % Constructor
     function this = ConvexPolyhedron(vertices)
-      assert(isempty(vertices) || size(vertices, 1) == 2, "Each column in vertices must have two elements. Instead it had %d.", size(vertices, 1))
+      assert(isempty(vertices) || size(vertices, 1) == 2, "Each column in vertices must have two elements. Instead it had %d.", size(vertices, 1));
       this.vertices =  vertices;
       % ! If isempty(vertices), then we can still have size(vertices, 2) > 0, since the shape of vertices can be 0xN for N > 0.
       if isempty(vertices)
@@ -73,6 +79,45 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
   end
 
   methods
+    % ╭──────────────────────────────────────╮
+    % │ ╭──────────────────────────────────╮ │
+    % │ │             Queries              │ │
+    % │ ╰──────────────────────────────────╯ │
+    % ╰──────────────────────────────────────╯
+    function v = getVertex(this, ndx)
+      v = this.vertices(:, ndx);
+    end % End of function
+
+    function [is_member, v_ndx] = isVertex(this, v)
+      [is_member, v_ndx] = ismembertol(v', this.vertices', 1e-6, 'ByRows', true);
+      assert(size(v_ndx, 2) <= 1, 'Vertices are unique, show only one vertex expected.');
+    end % End of function
+
+    function TF = contains(this, points)
+      % Use "isPointInPolygon" from the matGeom package.
+      TF =  isPointInPolygon(points', this.vertices')';
+    end % End of function
+
+    % ╭───────────────────────────────────────────────╮
+    % │ ╭───────────────────────────────────────────╮ │
+    % │ │             Vertex Operations             │ │
+    % │ ╰───────────────────────────────────────────╯ │
+    % ╰───────────────────────────────────────────────╯
+    
+    function poly = removeVertex(this, v)
+      [is_member, v_ndx] = this.isVertex(v);
+      if ~is_member
+        warning("ConvexPolyhedron:notAVertex","The vertex %s was not in this polyhedron, which has vertices=%s.", mat2str(v), mat2str(this.vertices));
+      end
+      vertices_without_v  = this.vertices(:, setdiff(1:end, v_ndx));
+      poly = ConvexPolyhedron(vertices_without_v);
+    end % End of function
+
+    % ╭────────────────────────────────────────────╮
+    % │ ╭────────────────────────────────────────╮ │
+    % │ │             Set Operations             │ │
+    % │ ╰────────────────────────────────────────╯ │
+    % ╰────────────────────────────────────────────╯
     function result = minkowskiSum(left, right)
       % ! We do a simple and inefficient implementation of the Minkowski sum here. 
       % ! It should be fine for small numbers of points, but the complexity is O(m*n) (or worse) instead of O(m + n), where m and n are the numbers of vertices in each polygon.
@@ -119,9 +164,9 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
       right_vertices  = ConvexPolyhedron.verticesFromOperand(right);
       
       if size(left_vertices, 2) == 2
-        result = right.intersectRay(left_vertices)
+        result = right.intersectRay(left_vertices);
       elseif size(right_vertices, 2) == 2
-        result = left.intersectRay(right_vertices)
+        result = left.intersectRay(right_vertices);
       else
         vertices1 = uniqueCols(left_vertices);
         vertices2 = uniqueCols(right_vertices);
@@ -132,12 +177,12 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
         result = ConvexPolyhedron(intersection_vertices);
       end
     end
-    
+
     function result = intersectRay(this, v)
       % v is a vector in R^2 (v ≠ 0) that defines a ray from the origin.
 
-      assert(iscolumn(v), "v must be a column vector")
-      assert(size(v, 1) == 2)
+      assert(iscolumn(v), "v must be a column vector");
+      assert(size(v, 1) == 2);
 
       % ⋘──────────  Use the geo2d package to compute intersection. ──────────⋙
       % Create a "ray" in the format used by geo2d, namely
@@ -151,17 +196,8 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
     end
 
     function result = linearTransform(this, A)
-      assert(cond(A) < 1e9, "Only implemented for invertible A, for now. Otherwise we need to set collapses to a lower.")
+      assert(cond(A) < 1e9, "Only implemented for invertible A, for now. Otherwise we need to set collapses to a lower.");
       result = ConvexPolyhedron(A*this.vertices);
-    end
-
-    function poly = removeVertex(this, v)
-      [is_member, v_ndxs] = ismembertol(v', this.vertices', 'ByRows', true);
-      if ~is_member
-        warning("ConvexPolyhedron:notAVertex","The vertex %s was not in this polyhedron, which has vertices=%s.", mat2str(v), mat2str(this.vertices))
-      end
-      vertices_without_v  = this.vertices(:, setdiff(1:end, v_ndxs));
-      poly = ConvexPolyhedron(vertices_without_v);
     end
 
     % ╭──────────────────────────────────────────────────────╮
@@ -174,6 +210,9 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
     % ╰───────────────────────────────────────────────────────────────────────╯
     function result = isempty(this)
       result = isempty(this.vertices);
+    end
+    function result = count(this)
+      result = size(this.vertices, 2);
     end
 
     % ╭────────────────────────────────────────────╮
@@ -193,7 +232,19 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
     function result = mtimes(A, convex_polyhedron)
       result = convex_polyhedron.linearTransform(A);
     end
-  end
+
+    % Overload "==" operator
+    function is_equal = eq(left, right)
+      left_subset_right = all(ismember( left.vertices', right.vertices', 'rows'));
+      right_subset_left = all(ismember(right.vertices',  left.vertices', 'rows'));
+      is_equal = left_subset_right && right_subset_left;
+    end % End of function
+    
+    % Overload "~=" operator
+    function is_not_equal = ne(left, right)
+      is_not_equal = ~(left == right);
+    end % End of function
+  end% End of methods block
 
   methods(Access=private, Static)
     function vertices = verticesFromOperand(operand)
@@ -204,10 +255,10 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
       elseif isnumeric(operand) && size(operand, 1) == 2
         vertices = operand;
       else
-        error("ConvexPolyhedron:invalidOperand","operand is invalid type (%s) or size (%s). Expected a Convex Polyhedron or a 2xN array.", class(operand), mat2str(size(operand)))
+        error("ConvexPolyhedron:invalidOperand","operand is invalid type (%s) or size (%s). Expected a Convex Polyhedron or a 2xN array.", class(operand), mat2str(size(operand)));
       end
     end
-  end
+  end % End of private static methods block
 
   % ╭──────────────────────────────────────────╮
   % │             Overload Display             │
