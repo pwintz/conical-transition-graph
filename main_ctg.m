@@ -73,7 +73,7 @@ lineStyles = {"-"}; % {":", "--", "-."};
 % ⋘────────── Get the nerighbors of a vertex ──────────⋙
 v0_ndx = 1;
 v0 = conical_partition.getStateSpaceVertex(v0_ndx);
-v0_nbd_ndxs = conical_partition.getNeighborVertexIndices(v0_ndx);
+v0_nbd_ndxs = conical_partition.getVerticesAdjacentToVertex(v0_ndx);
 adjacent_regions_ndxs = conical_partition.getAdjacentRegionsIndices(v0_ndx);
 v_prev_ndx = v0_nbd_ndxs(1);
 v_next_ndx = v0_nbd_ndxs(2);
@@ -119,7 +119,7 @@ R_next = (v0 + 1e3 * D_next);
 % ╭────────────────────────────────────╮
 % │             Plot Graph             │
 % ╰────────────────────────────────────╯
-pwintz.plots.NamedFigure("Graph");
+pwintz.plots.namedFigure("Graph");
 clf;
 hold on;
 xlim(1.5*[-1, 1]);
@@ -162,7 +162,7 @@ for i = 1:min(numel(cycles), max_cycles_to_plot)
 end
 
 
-pwintz.plots.NamedFigure("2D Vertices");
+pwintz.plots.namedFigure("2D Vertices");
 clf;
 hold on;
 xlim(1.5*[-1, 1]);

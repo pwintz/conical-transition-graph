@@ -18,13 +18,13 @@ classdef TestConvexPolyhedron < matlab.unittest.TestCase
     function runTests(varargin) % Define convenience functions for running tests.
 
       % ⋘──────── Build a list of test strings ────────⋙
-      test_class_nam = "TestConvexPolyhedron";
+      test_class_name = "TestConvexPolyhedron";
       if isempty(varargin) 
         % If no arguments given, run all of the tests.
         test_strings = test_class_name;
       else
         % If an argument is given, run construct a list of test functions to run.
-        test_strings = cellfun(@(function_name) test_class_nam + "/" + function_name, varargin);
+        test_strings = cellfun(@(function_name) test_class_name + "/" + function_name, varargin);
       end
 
       % ⋘──────── Run tests ────────⋙

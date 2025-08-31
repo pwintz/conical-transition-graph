@@ -3,35 +3,53 @@ classdef ConicAbstraction < handle
   %%% TODO: It seems like this class should be merged into ConicalPartition.
   %%% X Option 1: Merge classes, naming the resulting class "ConicaAbstraction".
   %%% * Option 2: Move all of the reachability analysis from ConicalPartion to here. Making ConicalPartion a "data" class.
-  %%%  * Details: The ConicalPartition class currently handles constructing two separate partitions: a "derivative" partition and a "state" partition. We could store these in two separate partitions, with the connection being handled by the ConicAbstraction. Choosing this option would allow the ConicalPartition class to be nicely focused on the geometry (which regions are where, how are they connected) without worrying about the dynamics.
+  %%%  * Details: The ConicalPartition class currently handles constructing two separate partitions: a "derivative" partition and a "state" partition. We could store these in two separate partitions, with the connection being handled by the ConicAbstraction. Choosing this option would allow the ConicalPartition class to be nicely focused on the geometry (which cones are where, how are they connected) without worrying about the dynamics.
   %%% * Option 3: Keep logic for computing local (single-step) flow and jump reachability into ConicalPartition. Then, in ConicalAbstraction, handle the composition of the reachability into graphs for analysis.
   %%%  * Details: This seems like an inferior options. It's distrubtes the handling of the dynamics between multiple classes.
   
   properties(SetAccess = immutable)
     % Define instance constants.
-    conical_partition;
-    flow_set_region_ndxs;
-    jump_set_region_ndxs;
-    jump_set_image_region_ndxs;
-    flow_graph; % Digraph where each node is a vertex in the conical partition.
-    jump_graph; % Digraph where each node is a region in the conical partition.
+    conical_partition; % Partition of state space.
+    % state_conical_partition; % Partition of state space.
+    % deriv_conical_partition; % Partition of derivative space.
+    flow_map_matrix; % "A_c"
+    jump_map_matrix; % "A_d"
+    flow_set_cone_ndxs         (1, :) int32;
+    jump_set_cone_ndxs         (1, :) int32;
+    jump_set_image_cone_ndxs   (1, :) int32;
+    is_cone_in_flow_set        (1, :) logical;
+    is_cone_in_jump_set        (1, :) logical;
+    is_cone_in_jump_set_image  (1, :) logical;
+    % flow_graph; % Digraph where each node is a vertex in the conical partition.
+    % jump_graph; % Digraph where each node is a cone in the conical partition.
+
+    % can_flow_from_vertex_into_cone is a logical array with dimensions (n_vertices)x(n_cones).
+    % The (i,j) entry of can_flow_from_vertex_into_cone is 1 if and only if at vertex i, the flow of \dot x = A_c x does not point out of the cone j, indicating that a flow from v_i can travel into cone_j (or, possibly, travel along the border).
+    can_flow_from_vertex_into_cone (:, :); % Logical (n_vertices)x(n_cones)
+    can_flow_from_cone_to_vertex   (:, :); % Logical (n_cones)x(n_vertices)
+    % reachable_cones_from_vertex cell;
+
+    restricted_reachable_sets_from_unit_sphere_in_cone  (1, :) cell; % Contains ConvexPolyhedrons.             
+    reachable_sets_from_unit_sphere_in_cone             (1, :) cell; % Contains ConvexPolyhedrons.  
+    directly_reachable_sets_from_vertices               (:, :) cell; % Contains ConvexPolyhedrons.
+
+    flow_transition_graph FlowTransitionGainDigraph;
+    jump_transition_graph TransitionGainDigraph;
+    contracted_flow_transition_graph TransitionGainDigraph;
+    ctg TransitionGainDigraph;
+
+    is_origin_asymptotically_stable logical;% (1, 1) TrueFalseIndederminate;
   end
   
   methods(Static)
-    function test(test_function_name)
-      test_name = "TestConicAbstraction";
-      if nargin() == 1 % If a test function name is given, append it so only that test is run.
-        test_name = test_name + "/" + test_function_name;
-      end
-      results = runtests(test_name);
-      fprintf("%d Passed, %d Failed, %d Incomplete.\n", sum([results.Passed]), sum([results.Failed]), sum([results.Incomplete]));
+    function test(varargin) % Run tests
+      TestConicAbstraction.runTests(varargin{:});
     end % End of function
-  end % End static methods block
-  
-  methods(Static)
+
     function conic_abstraction = fromAngles(options)
       arguments(Input)
-        options.n (1, 1) int32;
+        options.maxStateConeAngle (1, 1) double = 2*pi / 10;
+        options.maxDerivativeConeAngle (1, 1) double = 2*pi / 20;
         options.flowMapMatrix (2, 2) double; % "A_c" in \dot x = A_c x.
         options.jumpMapMatrix (2, 2) double; % "A_d" in    x^+ = A_d x.
         options.flowSetAngles (1, 2) double;
@@ -43,102 +61,169 @@ classdef ConicAbstraction < handle
       end % End of Output arguments block
       
       A_c = options.flowMapMatrix;
-      A_d= options.jumpMapMatrix;
-      
-      % Create the baseline derivative vertex angles. We'll add more state angles to this list to account for the flow and jump sets.
-      derivative_vertex_angles = pwintz.arrays.range("start", 0, "end", 2*pi, "n_values", options.n, "includeEnd", false);
-      
+      A_d = options.jumpMapMatrix;
+      ConicAbstraction.checkMatrices(A_c, A_d);
+
+      ConicAbstraction.checkSetAngles(options.flowSetAngles);
+      ConicAbstraction.checkSetAngles(options.jumpSetAngles);
+
       % Compute the image of the jump set under the jump map.
       jump_set_image_vectors = A_d * pwintz.math.angle2UnitVector(options.jumpSetAngles);
       jump_set_image_angles = pwintz.math.atan2(jump_set_image_vectors);
+
+      % Sort the two angles in jump_set_image_angles so that the angle from the first to the second is less than pi in the CCW direction. 
+      if pwintz.math.angleDiffCCW(jump_set_image_angles, index=1) > pi
+        jump_set_image_angles = circshift(jump_set_image_angles, 1);
+      end
+      assert(pwintz.math.angleDiffCCW(jump_set_image_angles, index=1) <= pi, ...
+        'The jump_set_image_angles=%s should be ordered now such that the CCW distance from the first to second entry is < pi.')
       
-      % Create a list of all the aditional state vertex angles we need to include in the ConicalPartition.
-      additional_state_vertex_angles = [options.flowSetAngles, options.jumpSetAngles, jump_set_image_angles];
+      % Create the baseline derivative vertex angles. We'll add more state angles to this list to account for the flow and jump sets.
+      n_min_derivative_cones = ceil(2*pi / options.maxDerivativeConeAngle);
+      derivative_cone_angles = pwintz.arrays.range("start", 0, "end", 2*pi, "n_values", n_min_derivative_cones, "includeEnd", false);
+      derivative_cone_vertices = pwintz.math.angle2UnitVector(derivative_cone_angles);
+      state_cone_vertices = A_c \ derivative_cone_vertices;
+      state_cone_angles = pwintz.math.atan2(state_cone_vertices);
+
+      % Add the angles from the flow set, jump set, and image of the jump.
+      state_cone_angles = [state_cone_angles, options.flowSetAngles, options.jumpSetAngles, jump_set_image_angles];
+      % Update range to be [0, 2*pi)
+      state_cone_angles = mod(state_cone_angles, 2*pi);
+      % Sort and remove duplicates.
+      state_cone_angles = unique(state_cone_angles, 'sorted');
+
+      % ⋘──────── If any angles are too large, insert needed nodes ────────⋙
+      angle_diff = pwintz.math.angleDiffCCW(state_cone_angles);
+      extra_angles = [];
+      for i = find(angle_diff > options.maxStateConeAngle)
+        % We use a crude method for inserting more state cones. We simple take the last angle before the offending interval and step forward at the maximum allowed angle step. 
+        extra_angles = [extra_angles, state_cone_angles(i) + (0:options.maxStateConeAngle:angle_diff(i))]; %#ok<AGROW>
+      end
+      state_cone_angles = unique([state_cone_angles,extra_angles], 'sorted');
       
       % Create the ConicalPartition.
-      conical_partition = ConicalPartition.fromAngles(A_c, derivative_vertex_angles, additional_state_vertex_angles);
+      conical_partition = ConicalPartition(state_cone_angles);
       
+      % Find the ConicalPartition cones that partition the flow set, jump set, and image of the jump set.
+      flow_set_cone_ndxs       = conical_partition.getConesIntersectingArc(options.flowSetAngles(1), options.flowSetAngles(2));
+      jump_set_cone_ndxs       = conical_partition.getConesIntersectingArc(options.jumpSetAngles(1), options.jumpSetAngles(2));
+      jump_set_image_cone_ndxs = conical_partition.getConesIntersectingArc(jump_set_image_angles(1), jump_set_image_angles(2));
       
-      % Find the ConicalPartition regions that partition the flow set, jump set, and image of the jump set.
-      flow_set_region_ndxs       = conical_partition.getRegionsBetweenVerticesFromAngles(options.flowSetAngles(1), options.flowSetAngles(2));
-      jump_set_region_ndxs       = conical_partition.getRegionsBetweenVerticesFromAngles(options.jumpSetAngles(1), options.jumpSetAngles(2));
-      jump_set_image_region_ndxs = conical_partition.getRegionsBetweenVerticesFromAngles(jump_set_image_angles(1), jump_set_image_angles(2));
-      
-      % Create the conical partition.
-      conic_abstraction = ConicAbstraction(conical_partition, flow_set_region_ndxs, jump_set_region_ndxs, jump_set_image_region_ndxs);
+      % Create the conical abstraction.
+      conic_abstraction = ConicAbstraction(conical_partition, flow_set_cone_ndxs, jump_set_cone_ndxs, jump_set_image_cone_ndxs, A_c, A_d);
     end % End of function
   end % End static methods block
   
+  
   methods
-    
     % ╭─────────────────────────────────────────╮
     % │ ╭─────────────────────────────────────╮ │
     % │ │             Constructor             │ │
     % │ ╰─────────────────────────────────────╯ │
     % ╰─────────────────────────────────────────╯
-    function this = ConicAbstraction(conical_partition, flow_set_region_ndxs, jump_set_region_ndxs, jump_set_image_region_ndxs)
+    function this = ConicAbstraction(conical_partition, flow_set_cone_ndxs, jump_set_cone_ndxs, jump_set_image_cone_ndxs, flow_map_matrix, jump_map_matrix)
       % Function signature should be like: myFunction(<positional arguments>, options)
       arguments
         conical_partition ConicalPartition;
-        flow_set_region_ndxs       (1, :) double;
-        jump_set_region_ndxs       (1, :) double;
-        jump_set_image_region_ndxs (1, :) double;
-        % flow_set ConvexPolyhedron; % <- This should be a cone.
+        flow_set_cone_ndxs       (1, :) double;
+        jump_set_cone_ndxs       (1, :) double;
+        jump_set_image_cone_ndxs (1, :) double;
+
+        % Linear maps Ac and Ad that define \dot x = Ax * x and x^+ = A_d * x.
+        flow_map_matrix          (2, 2) double;
+        jump_map_matrix          (2, 2) double;
       end
       
       this.conical_partition = conical_partition;
-      this.flow_set_region_ndxs = flow_set_region_ndxs;
-      this.jump_set_region_ndxs = jump_set_region_ndxs;
-      this.jump_set_image_region_ndxs = jump_set_image_region_ndxs;
+      this.flow_set_cone_ndxs = flow_set_cone_ndxs;
+      this.jump_set_cone_ndxs = jump_set_cone_ndxs;
+      this.jump_set_image_cone_ndxs = jump_set_image_cone_ndxs;
+
+      cone_indices = conical_partition.cone_indices;
+      this.is_cone_in_flow_set       = ismember(cone_indices, flow_set_cone_ndxs);
+      this.is_cone_in_jump_set       = ismember(cone_indices, jump_set_cone_ndxs);
+      this.is_cone_in_jump_set_image = ismember(cone_indices, jump_set_image_cone_ndxs);
+
+      % ⋘──────── Checks ────────⋙
+      if ~any(this.is_cone_in_jump_set | this.is_cone_in_flow_set)
+        warning("The jump set does not intersect the flow set.");
+      end
       
-      % ╭─────────────────────────────────────────╮
-      % │             Construct Graph             │
-      % ╰─────────────────────────────────────────╯
-      node_table = struct2table(struct(...
-        "Name",     arrayfun(@vertexIndex2Name, conical_partition.vertex_indices'),...
-        "TeXLabel", arrayfun(@vertexIndex2TexLabel, conical_partition.vertex_indices'),...
-        "Index",    conical_partition.vertex_indices',...
-        "x",        conical_partition.state_vertices(1, :)',...
-        "y",        conical_partition.state_vertices(2, :)'...
-        )...
-        );
-      edge_table = struct2table(struct(...
-        "EndNodes",          double.empty(0, 2), ...
-        "Weight",            double.empty(0, 1), ...
-        "WeightIntervalStr", string.empty(0, 1), ...
-        "Length",            double.empty(0, 1) ...
-        ) ...
-        );
-      flow_graph = digraph(edge_table, node_table);
+      if ~any(this.is_cone_in_jump_set_image | this.is_cone_in_flow_set)
+        warning("The jump set image does not intersect the flow set.");
+      end
+
+      % Linear maps Ac and Ad that define \dot x = Ax * x and x^+ = A_d * x.
+      this.flow_map_matrix = flow_map_matrix;
+      this.jump_map_matrix = jump_map_matrix;
+
+      % ⋘──────── Check the indices are all valid ────────⋙
+      % Check that the set of indices for the flow set, jump set, and jump set images are subsets of "conical_partition.cone_indices".
+      pwintz.assertions.assertAllAreMembers(flow_set_cone_ndxs,       cone_indices);
+      pwintz.assertions.assertAllAreMembers(jump_set_cone_ndxs,       cone_indices);
+      pwintz.assertions.assertAllAreMembers(jump_set_image_cone_ndxs, cone_indices);
+      pwintz.assertions.assertUnique(flow_set_cone_ndxs);
+      pwintz.assertions.assertUnique(jump_set_cone_ndxs);
+      pwintz.assertions.assertUnique(jump_set_image_cone_ndxs);
+
+      % ╭──────────────────────────────────────────────╮
+      % │             Construct Flow Graph             │
+      % ╰──────────────────────────────────────────────╯
+      % * To check that the origin is stable for \dot x = A_c*x, x \in C, we need to check the following:
+      %   * For each cycle in flow_graph, the weight is <= 1.
+      %   * For each flow set cone,  
+      this.flow_transition_graph = FlowTransitionGainDigraph(conical_partition, flow_set_cone_ndxs, flow_map_matrix);
+
       
+      this.contracted_flow_transition_graph = this.flow_transition_graph.contractEdgesToBetweenCones(this.jump_set_image_cone_ndxs, this.jump_set_cone_ndxs);
+
+      
+      
+      
+      % ⋘──────── Construct Jump Graph for Reachability between Cones ────────⋙
+      this.jump_transition_graph = JumpTransitionGainDigraph(conical_partition, this.jump_set_cone_ndxs, this.jump_set_image_cone_ndxs, this.jump_map_matrix);
+      
+      % ⋘──────── Construct Conical Transition Graph ────────⋙
+      this.ctg = TransitionGainDigraph.union(this.jump_transition_graph, this.contracted_flow_transition_graph);
+      [cycle_min_gains, cycle_max_gains, cycles_nodes, cycles_edges] =  this.ctg.getCycleGains();
+
+
+      this.is_origin_asymptotically_stable = all(cycle_max_gains < 1) && this.hasStableFlows();
+
+
+
+      return
       for v0_ndx = conical_partition.vertex_indices
-        v0 = conical_partition.getStateSpaceVertex(v0_ndx);
+        v0 = conical_partition.getVertex(v0_ndx);
         v0_name = vertexIndex2Name(v0_ndx);
         
         % ⋘────────── Get the neighbors of v0 ──────────⋙
-        for v_nb_ndx = conical_partition.getNeighborVertexIndices(v0_ndx)
+        % !!! Using adjacent nodes works in 2D, but in higher dimensions, to find all of the vertices that are on the boundary of the same cone, we need to use a different approach.
+        for v_nb_ndx = conical_partition.getVerticesAdjacentToVertex(v0_ndx)
+          assert(all(v0_ndx ~= v_nb_ndx));
           
-          v_nb = conical_partition.getStateSpaceVertex(v_nb_ndx);
+          v_nb      = conical_partition.getVertex(v_nb_ndx);
           v_nb_name = vertexIndex2Name(v_nb_ndx);
           % fprintf('Checking if there is an arrow from %s to %s\n', v0_name, v_nb_name);
-          conjoining_regions_ndxs = conical_partition.getConjoiningRegionsIndices(v0_ndx, v_nb_ndx);
-          assert(numel(conjoining_regions_ndxs) == 1, "We expect exactly one region conjoining a pair of neighboring vertices (in 2D).");
-          
-          if ~ismember(conjoining_regions_ndxs, this.flow_set_region_ndxs)
-            % Region is not in the flow set, so we skip it.
+          conjoining_cones_ndxs = conical_partition.getStateConeConjoiningTwoVertices(v0_ndx, v_nb_ndx);
+          if v0_ndx ~= conical_partition.origin_index && v_nb_ndx ~= conical_partition.origin_index
+            assert(numel(conjoining_cones_ndxs) == 1, "We expect exactly one cone conjoining the pair of vertices v0_ndx = %s, v_nb_ndx = %s (in 2D). Instead there were %d. They are %s.", mat2str(v0_ndx), mat2str(v_nb_ndx), numel(conjoining_cones_ndxs), mat2str(conjoining_cones_ndxs));
+          end
+          if ~ismember(conjoining_cones_ndxs, this.flow_set_cone_ndxs)
+            % Cone is not in the flow set, so we skip it.
             continue
           end
           
           % ⋘────────── Check if v_nb is reachable from v0 ──────────⋙
-          C = conical_partition.getStateCone(conjoining_regions_ndxs);
-          AC = conical_partition.getDerivativeCone(conjoining_regions_ndxs);
-          % Get the region reachable from v0 when flowing in the conjoing region C under the \dot x = D = AC, which will include any solution to \dot x = Ax in the region.
-          R = (v0 + 1e4 * AC) | (1e4 * C);
+          state_cone = this.getStateCone(conjoining_cones_ndxs);
+          derivative_cone = this.flow_map_matrix * state_cone;
+          % Get the cone reachable from v0 when flowing in the conjoing cone state_cone under the \dot x = D = derivative_cone, which will include any solution to \dot x = Ax in the cone.
+          reach_set = (v0 + 1e4 * derivative_cone) | (1e4 * state_cone);
           
           % ⋘────────── If v_nb is reachable from v0, construct edge──────────⋙
-          if ~isempty(R)
+          if ~isempty(reach_set)
             % Get the set of points in ray(v_nb) that is reachable from v0.
-            reachable_edge = R.removeVertex(v0).vertices;
+            reachable_edge = reach_set.removeVertex(v0).vertices;
             
             % % Check "reachable_edge" is acutally a line segment aligned with ray(v0)
             % TODO: Debug why these assertions fail.
@@ -152,70 +237,278 @@ classdef ConicAbstraction < handle
             % interval_weight = [w_min, w_max];
             fprintf('Adding an arrow from %6s to %6s.\tw_min = %s,\tw_max = %s\n', v0_name, v_nb_name, ctg.utils.num2strNear1(w_min), ctg.utils.num2strNear1(w_max));
             
-            interval_label = sprintf("[%.2g, %.2g]", w_min, w_max);
-            edge_table = table(...
-              [v0_name, v_nb_name], ...
-              w_max, ...
-              interval_label, ...
-              norm(v0 - v_nb), ...
-              'VariableNames', {'EndNodes', 'Weight', 'WeightIntervalStr', 'Length'});
-            flow_graph = flow_graph.addedge(edge_table);
+            % interval_label = sprintf("[%.2g, %.2g]", w_min, w_max);
+            % edge_table = table(...
+            %   [v0_name, v_nb_name], ...
+            %   w_max, ...
+            %   interval_label, ...
+            %   norm(v0 - v_nb), ...
+            %   'VariableNames', {'EndNodes', 'Weight', 'WeightIntervalStr', 'Length'});
+            % flow_graph = flow_graph.addedge(edge_table);
+            flow_transition_graph.addEdgeFromVertexToVertex(v0_ndx, v_nb_ndx, w_min, w_max);
+
             % graph = graph.addedge(v0_name, v_nb_name, w_max);
-          end % End "if ~isempty(R)" block
+          end % End "if ~isempty(reach_set)" block
           % disp("Intersection (R_" + v0v_prev_ndxs + " ∩ v_" + v_prev_ndx + "): ")
           % disp(R_prev.intersectRay(v_prev))
         end % End of for block
-        this.flow_graph = flow_graph;
+        % this.flow_graph = flow_graph;
       end % End of for block
       
-      region_node_table = struct2table(struct(...
-        "Name",     arrayfun(@regionIndex2Name, conical_partition.region_indices'),...
-        "TeXLabel", arrayfun(@regionIndex2TexLabel, conical_partition.vertex_indices'),...
-        "Index",    conical_partition.vertex_indices',...
-        "region",        conical_partition.state_vertices(1, :)',...
-        "y",        conical_partition.state_vertices(2, :)'...
-        )...
-        );
-      edge_table = struct2table(struct(...
-        "EndNodes",          double.empty(0, 2), ...
-        "Weight",            double.empty(0, 1), ...
-        "WeightIntervalStr", string.empty(0, 1), ...
-        "Length",            double.empty(0, 1) ...
-        ) ...
-        );
-      jump_graph = digraph(edge_table, node_table);
+      % node_table = struct2table(struct(...
+      %   "Name",     arrayfun(@coneIndex2Name, conical_partition.cone_indices'),...
+      %   "TeXLabel", arrayfun(@coneIndex2TexLabel, conical_partition.vertex_indices'),...
+      %   "Index",    conical_partition.vertex_indices',...
+      %   "x",        conical_partition.state_vertices(1, :)',...
+      %   "y",        conical_partition.state_vertices(2, :)'...
+      % ));
+      % edge_table = struct2table(struct(...
+      %   "EndNodes",          double.empty(0, 2), ...
+      %   "Weight",            double.empty(0, 1), ...
+      %   "WeightIntervalStr", string.empty(0, 1), ...
+      %   "Length",            double.empty(0, 1) ...
+      % ));
+      % jump_graph = digraph(edge_table, node_table);
       % for
-      %   
-      end % End of function
+      %
+    end % End of function
+    
+    function [v_ndxs, reach_sets_in_cone] = computeDirectlyBackwardReachableVerticesFromSet(this, cone)
+      % Find all of the vertices v such that "cone" can be reached from v by flowing through through a single cone of the partition.
+      % Outputs:
+      % * v_ndxs: An array of the vertex indices, arranged horizontally.
+      % * reach_sets: An array of the vertex indices, arranged horizontally.
+      arguments
+        this ConicAbstraction;
+        cone ConvexPolyhedron; % <-  We should use a "cone" data type.
+      end
       
-      function [v_ndxs, reach_sets_in_cone] = computeDirectlyBackwardReachableVerticesFromSet(this, cone)
-        % Find all of the vertices v such that "cone" can be reached from v by flowing through through a single region of the partition.
-        % Outputs:
-        % * v_ndxs: An array of the vertex indices, arranged horizontally.
-        % * reach_sets: An array of the vertex indices, arranged horizontally.
-        arguments
-          this ConicAbstraction;
-          cone ConvexPolyhedron; % <-  We should use a "cone" data type.
+      % ⋘────────── Find all of the cones that intersect "cone" ──────────⋙
+      
+    end % End of function
+
+    function state_cone = getStateCone(this, cone_index)
+      state_cone = this.conical_partition.getCone(cone_index);
+    end % End of function
+
+    function set = getReachableSetInCone(this, cone_index, initial_set)
+      
+    end % End of function
+
+
+    % ╭────────────────────────────────────────╮
+    % │             Reachable Sets             │
+    % ╰────────────────────────────────────────╯
+    function [reachable_set_in_cone, reachable_set] = computeReachableSet(this, cone_ndx, P0)
+      % Compute the cone that is reachable from P0 when flowing according to \dot x \in A*C_i, where C_i is given cone .
+      % The "derivative cone" is represented using vertices on the unit sphere, so we scale it up so that we get a set the sufficiently represents "P0 + A*C_i", at least up to a large radius.
+      C_i  = this.conical_partition.getCone(cone_ndx);
+      AC_i = this.flow_map_matrix * C_i;
+      reachable_set         = P0 + 1e5*AC_i;
+      reachable_set_in_cone = intersection(reachable_set, 1e5*C_i);
+    end
+
+    % ╭────────────────────────────────────────╮
+    % │  ╭──────────────────────────────────╮  │
+    % │  │             Analysis             │  │
+    % │  ╰──────────────────────────────────╯  │
+    % ╰────────────────────────────────────────╯
+    function has_stable_flows = hasStableFlows(this)
+      % arguments(Output)
+      %   has_stable_flows TrueFalseIndederminate;
+      % end % End of Input arguments block
+      arguments(Output)
+        has_stable_flows logical; % True if stable, false if indeterminate.
+      end % End of Output arguments block
+      reach_sets = this.flow_transition_graph.restricted_reachable_sets_from_unit_sphere_in_cone;
+      assert(isvector(reach_sets), "Expected reach_sets to be 1-dimensional. Instead its size was %s.", mat2str(size(reach_sets)));
+      for i_reach_set = 1:numel(reach_sets)
+        R = reach_sets{i_reach_set};
+        if max(vecnorm(R.vertices)) > 1e3
+          has_stable_flows = false; % TrueFalseIndederminate.indeterminate;
+          return
         end
-        
-        % ⋘────────── Find all of the regions that intersect "cone" ──────────⋙
-        
-      end % End of function
+      end
+      [~, cycles_edges] = this.flow_transition_graph.getVertexCycles();
+      assert(isvector(cycles_edges), "Expected cycles_edges to be 1-dimensional. Instead its size was %s.", mat2str(size(cycles_edges)));
+      for i_cycle = 1:numel(cycles_edges)
+        cycle_edge_ndxs = cycles_edges{i_cycle};
+        edges = this.flow_transition_graph.getEdgeRow(cycle_edge_ndxs);
+        cycle_max_gain = prod(edges.MaxGain);
+        if cycle_max_gain > 1
+          has_stable_flows = false; % TrueFalseIndederminate.indeterminate;
+          return
+        end
+      end
+      has_stable_flows = true; % TrueFalseIndederminate.true;
+    end % End of function
+
+    % ╭─────────────────────────────────────────────────────╮
+    % │  ╭───────────────────────────────────────────────╮  │
+    % │  │             Reachability Analysis             │  │
+    % │  ╰───────────────────────────────────────────────╯  │
+    % ╰─────────────────────────────────────────────────────╯
+    
+
+    function reach_set = getReachableSetFromVertex(this, vertex_ndx, min_radius, max_radius, depth)
+      this.flow_transition_graph.get
+      reachable_convex_polyhedrons = {};
+      % if depth = 
+    end
+    
+    function reach_set = getReachableSetFromCone(this, vertex_ndx, depth)
+      reachable_convex_polyhedrons = {};
+      % if depth = 
+    end
+    
+    % ╭────────────────────────────────────────╮
+    % │  ╭──────────────────────────────────╮  │
+    % │  │             Plotting             │  │
+    % │  ╰──────────────────────────────────╯  │
+    % ╰────────────────────────────────────────╯
+    function plotVertices(this)
+      for i_vertex_ndx = this.conical_partition.nonorigin_vertex_indices
+        i_vertex = this.conical_partition.getVertex(i_vertex_ndx);
+        % Plot the vertex.
+        pwintz.plots.plotVector2(i_vertex, plotArgs={'k', "ShowArrowHead", false, "HandleVisibility", "off"});
+      end
+    end
+
+    function plotCones(this)
+      this.conical_partition.plot();
+
+      for cone_ndx = this.conical_partition.cone_indices
+        cone = this.conical_partition.getCone(cone_ndx);
+        alpha = 0.5;
+          
+        % ⋘──────── Plot flow_set ────────⋙
+        if ismember(cone_ndx, this.flow_set_cone_ndxs)
+          plot(cone, "FaceColor", "blue", "FaceAlpha", alpha);
+        end
+
+        % ⋘──────── Plot jump_set ────────⋙
+        if ismember(cone_ndx, this.jump_set_cone_ndxs)
+          plot(cone, "FaceColor", "red", "FaceAlpha", alpha);
+        end
+
+        % ⋘──────── Plot jump_set_image ────────⋙
+        if ismember(cone_ndx, this.jump_set_image_cone_ndxs)
+          plot(1.05*cone, "FaceColor", [0.9, 0.5, 0], "FaceAlpha", alpha);
+        end
+      end
+    end
+
+    function plotConesReachableFromVertices(this)
+      for i_vertex_ndx = this.conical_partition.nonorigin_vertex_indices
+        i_vertex = this.conical_partition.getVertex(i_vertex_ndx);
+    
+        for reachable_cone_ndx = find(this.can_flow_from_vertex_into_cone(i_vertex_ndx, :))
+          % ⋘──────── Plot arrow to middle of reachable cone ────────⋙
+          cone_middle_vector = this.conical_partition.getConeMiddleVector(reachable_cone_ndx);
+            pwintz.plots.plotVector2(i_vertex, cone_middle_vector - i_vertex, ...
+               plotArgs={"Color", [0, 0.7, 0], "HandleVisibility", "off", "LineWidth", 3, "MaxHeadSize", 3});
+        end
+      end
+    end % End of function
+
+    function plotVerticesReachableFromCones(this)
+      for i_cone_ndx = this.conical_partition.cone_indices
+        cone_middle_vector = this.conical_partition.getConeMiddleVector(i_cone_ndx);
+    
+        % ⋘──────── For each eachable vertex, plot an arrow from the cone cone to the vertex ────────⋙
+        for reachable_vertex_ndx = find(this.can_flow_from_cone_to_vertex(i_cone_ndx, :))
+          reachable_vertex = this.conical_partition.getVertex(reachable_vertex_ndx);
+          pwintz.plots.plotVector2(cone_middle_vector, reachable_vertex - cone_middle_vector, ....
+              plotArgs={"Color", [0, 0.2, 0.6], "HandleVisibility", "off", "LineWidth", 3, "MaxHeadSize", 3});
+        end
+      end
+    end % End of function
+
+    function plot_handle= plotFlowGraph(this)
+      % p = 
+      this.flow_transition_graph.plot();
+%       graph = this.flow_graph;
+%       p = plot(graph, ...
+%         "XData", graph.Nodes.x, ...
+%         "YData", graph.Nodes.y, ...
+%         "NodeColor", "black", ...
+%         "EdgeAlpha", 1, ...
+%         "MarkerSize", 8, ...
+%         "LineWidth", 10, ...
+%         'NodeLabel', graph.Nodes.TeXLabel, ...
+%         ...'EdgeLabel', graph.Edges.WeightIntervalStr, ...
+%         "NodeFontSize", 14, ...
+%         ... "EdgeFontSize", 10 * graph.Edges.Length / max(graph.Edges.Length), ...
+%         "Interpreter", "latex"...
+%       );
+% 
+%       geq_1_color = [1 0 0];
+%       lt_1_color  = [0 0 1];
+%       edge_color  = (graph.Edges.Weight >= 1) * geq_1_color + (graph.Edges.Weight < 1) * lt_1_color;
+% 
+%       % For the plotted weights, we want to illustrate that the importance aspect of an edges weight is its distance above or below 1. We use abs(log(weight)) to normalize. This way, weights equal to 1/2 and 2 are plotted with the same width.
+%       weight = abs(log(graph.Edges.Weight));
+%       weight = 6 * weight / max(weight) + 1;
+%       p.LineWidth = weight;
+%       p.ArrowSize = 8*sqrt(p.LineWidth);
+%       p.EdgeColor = edge_color;
+
+      if nargout() == 1
+        plot_handle = p;
+      end
+    end % End of function
+
   end % End methods block.
-end
   
+  % ╭──────────────────────────────────────────────╮
+  % │  ╭────────────────────────────────────────╮  │
+  % │  │             Value Checking             │  │
+  % │  ╰────────────────────────────────────────╯  │
+  % ╰──────────────────────────────────────────────╯
+  methods(Static, Access = private)
+    function checkMatrices(A_c, A_d)
+      % Check flow map matrix
+      assert(isnumeric(A_c));
+      assert(isreal(A_c));
+      assert(ismatrix(A_c));
+      assert(size(A_c,1) == size(A_c,2), "The matrix A_c must be square");
+
+      % Check jump map matrix
+      assert(isnumeric(A_d));
+      assert(isreal(A_d));
+      assert(ismatrix(A_d));
+      assert(size(A_d,1) == size(A_d,2), "The matrix A_d must be square");
+
+      % For the flow map matrix, check that it is invertible
+      assert(cond(A_c) < 1e9, "The matrix A_c must be well-conditioned but had a condition number of %8.2g", cond(A_c))
+      
+      % Check the dimension is OK. 
+      assert(size(A_c, 1) == 2, "Only 2D implemented, currently. A_c=%s", mat2str(A_c));
+    end % End of function
+
+    function checkSetAngles(angles)
+      input_name = inputname(1);
+      pwintz.assertions.assertSize(angles, [1, 2]);
+      assert(all(angles >= 0), "Angles used to define the set boundaries of ""%s"" must be nonnegative", input_name);
+      assert(all(angles < 2*pi), "Angles used to define the set boundaries of ""%s"" must be less than 2*pi", input_name);
+      assert(angles(2) >= angles(1), "The end angle used to define ""%s"" must be larger than the start angle", input_name);
+    end % End of function
+  end % End static methods block
+end
+
 function v_name = vertexIndex2Name(v_ndx)
-  v_name =  "v_" + v_ndx;
+  v_name = sprintf("v_%d", v_ndx);
 end
 
 function label = vertexIndex2TexLabel(v_ndx)
-label =  "$v_{" + v_ndx + "}$";
+  label = sprintf("$v_{%d}$", v_ndx);
+  % label =  "$v_{" + v_ndx + "}$";
 end
 
-function R_name = regionIndex2Name(R_ndx)
-R_name =  "R_" + R_ndx;
+function R_name = coneIndex2Name(R_ndx)
+  R_name =  "R_" + R_ndx;
 end
 
-function label = regionIndex2TexLabel(R_ndx)
-label =  "$R_{" + R_ndx + "}$";
+function label = coneIndex2TexLabel(R_ndx)
+  label =  "$R_{" + R_ndx + "}$";
 end

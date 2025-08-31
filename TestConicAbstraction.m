@@ -14,6 +14,29 @@ classdef TestConicAbstraction < matlab.unittest.TestCase
   %	 end
   % end
 
+  methods(Static)
+    function runTests(varargin) % Define convenience functions for running tests.
+      % ⋘──────── Build a list of test strings ────────⋙
+      test_class_name =  "TestConicAbstraction";
+      if isempty(varargin) 
+        % If no arguments given, run all of the tests.
+        test_strings = test_class_name;
+      else
+        % If an argument is given, run construct a list of test functions to run.
+        test_strings = cellfun(@(function_name) test_class_name + "/" + function_name, varargin);
+      end
+  
+      % ⋘──────── Run tests ────────⋙
+      results = runtests(test_strings);
+  
+      % ⋘──────── Print results ────────⋙
+      fprintf(...
+        "%d Passed, %d Failed, %d Incomplete.\n", ...
+        sum([results.Passed]), sum([results.Failed]), sum([results.Incomplete])...
+      );
+    end % End of function
+  end % End static methods block
+
   % ╭───────────────────────────────────╮
   % │ ╭───────────────────────────────╮ │
   % │ │             Tests             │ │

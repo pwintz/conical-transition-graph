@@ -4,7 +4,8 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
 
   properties(SetAccess = immutable)
     % Define instance constants.
-    vertices;
+    vertices (2, :) double;
+    dimension (1, 1) int32;
   end
   properties(SetAccess = immutable, GetAccess = private)
     % Define private variables.
@@ -15,7 +16,8 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
 
   methods(Static)
     function convex_polyhedron = fromConvexHull(points)
-      assert(size(points, 1) == 2, "Each column in 'points' must have two elements. Instead it had %d.", size(points, 1));
+      dimension = size(points, 1);
+      assert(dimension == 2, "Each column in 'points' must have two elements. Instead it had %d.", size(points, 1));
       indices = convhull(points', 'simplify', true);
       % The output of convhull is an array of indices from the "points" list such that the points are arranged counter-clockwise, with the first one repeated at the end. We trim the last index so that 
       vertices = points(:, indices(1:end-1));
@@ -36,6 +38,11 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
       convex_polyhedron = ConvexPolyhedron([p1, p2]);
     end
 
+    function array = arrayOfEmpty(m, n)
+      array = ConvexPolyhedron.empty(m, 0);
+      array(1:m, 1:n) = ConvexPolyhedron();
+    end
+
     % function convex_polyhedron = fromTriangle(p1, p2, p3)
     %   assert(iscolumn(p1), "p1 must be a column vector")
     %   assert(iscolumn(p2), "p2 must be a column vector")
@@ -45,7 +52,7 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
     %   convex_polyhedron = ConvexPolyhedron([p1, p2]);
     % end
 
-    function runTests(varargin) % Define convenience functions for running tests.
+    function tests(varargin) % Define convenience functions for running tests.
       TestConvexPolyhedron.runTests(varargin{:});
     end % End of function
   end
@@ -53,8 +60,14 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
   methods(Access=private)
     % Constructor
     function this = ConvexPolyhedron(vertices)
-      assert(isempty(vertices) || size(vertices, 1) == 2, "Each column in vertices must have two elements. Instead it had %d.", size(vertices, 1));
+      if nargin() == 0 || isempty(vertices)
+        vertices = double.empty(2, 0);
+      end
+
+      dimension = size(vertices, 1);
+      assert(dimension == 2, "Each column in vertices must have two elements. Instead size(vertices) = %s.", size(vertices));
       this.vertices =  vertices;
+      this.dimension = dimension;
       % ! If isempty(vertices), then we can still have size(vertices, 2) > 0, since the shape of vertices can be 0xN for N > 0.
       if isempty(vertices)
         this.n_vertices = 0;
@@ -104,7 +117,7 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
     % │ ╰───────────────────────────────────────────╯ │
     % ╰───────────────────────────────────────────────╯
     
-    function poly = removeVertex(this, v)
+    function poly = Vertex(this, v)
       [is_member, v_ndx] = this.isVertex(v);
       if ~is_member
         warning("ConvexPolyhedron:notAVertex","The vertex %s was not in this polyhedron, which has vertices=%s.", mat2str(v), mat2str(this.vertices));
@@ -163,6 +176,7 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
       left_vertices   = ConvexPolyhedron.verticesFromOperand(left);
       right_vertices  = ConvexPolyhedron.verticesFromOperand(right);
       
+      lastwarn(''); % Clear the last warning.
       if size(left_vertices, 2) == 2
         result = right.intersectRay(left_vertices);
       elseif size(right_vertices, 2) == 2
@@ -175,6 +189,10 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
         poly_intersection = intersect(poly1, poly2);
         intersection_vertices = poly_intersection.Vertices';
         result = ConvexPolyhedron(intersection_vertices);
+      end
+      warnmsg = lastwarn(); % Get the last warning
+      if warnmsg ~= ""
+        fprintf('There was a warning produced while finding the intersection between \n%sand \n%s\n', left, right);
       end
     end
 
@@ -244,6 +262,50 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
     function is_not_equal = ne(left, right)
       is_not_equal = ~(left == right);
     end % End of function
+
+    % ╭─────────────────────────────────────────────────────╮
+    % │             Overload Built-in Functions             │
+    % ╰─────────────────────────────────────────────────────╯
+    function str = char(this)
+      % This method defines the string representation that is 
+      % inserted when using "%s" in a string format, such as 
+      % fprintf("%s", polyhedron) or sprintf("%s", polyhedron); 
+      % It does not change the "disp" output. 
+      arguments(Output)
+        str char; % Ensure output is cast to char, even if you create a string.
+      end 
+      
+      if this.n_vertices == 0
+        str = sprintf('ConvexPolyhedron with 0 vertices (empty).\n');
+      elseif this.n_vertices == 1
+        str = sprintf('ConvexPolyhedron with 1 vertex: \n%s\n', formattedDisplayText(this.vertices));
+      else
+        str = sprintf('ConvexPolyhedron with %d vertices: \n%s\n', this.n_vertices, formattedDisplayText(this.vertices));
+      end
+    end
+
+    function disp(this)
+      if ~isscalar(this)
+        fprintf('%dx%d ConvexPolyhedron array\n', size(this, 1), size(this, 2))
+        return
+      end
+      if this.n_vertices == 0
+        fprintf("ConvexPolyhedron with 0 vertices (empty).\n");
+      elseif this.n_vertices == 1
+        fprintf("ConvexPolyhedron with 1 vertex: \n%s\n", formattedDisplayText(this.vertices));
+      else
+        fprintf("ConvexPolyhedron with %d vertices: \n%s\n", this.n_vertices, formattedDisplayText(this.vertices));
+      end
+    end
+
+    function out = isequaln(left, right)
+      out = eq(left, right);
+    end % End of function
+
+    function plot(this, varargin)
+      patch('XData', this.vertices(1, :),'YData', this.vertices(2, :), varargin{:});
+    end % End of function
+
   end% End of methods block
 
   methods(Access=private, Static)
@@ -260,20 +322,6 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
     end
   end % End of private static methods block
 
-  % ╭──────────────────────────────────────────╮
-  % │             Overload Display             │
-  % ╰──────────────────────────────────────────╯
-  methods
-    function disp(this)
-      if this.n_vertices == 0
-        fprintf("ConvexPolyhedron with 0 vertices (empty).\n");
-      elseif this.n_vertices == 1
-        fprintf("ConvexPolyhedron with 1 vertex: \n%s\n", formattedDisplayText(this.vertices));
-      else
-        fprintf("ConvexPolyhedron with %d vertices: \n%s\n", this.n_vertices, formattedDisplayText(this.vertices));
-      end
-    end
-  end
   % methods(Access=protected)
   %   function groups = getPropertyGroups(obj)
   %       if isscalar(obj)
