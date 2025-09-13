@@ -1,42 +1,6 @@
 classdef TestConvexPolyhedron < matlab.unittest.TestCase
-  % ! You can run these tests to be run automically via ConvexPolyhedron.test() by using the
-  % ! "runTestsStaticFunction" snippet to add a static method to ConvexPolyhedron.m
-
-  % methods (TestMethodSetup)
-  %	 function setup(testCase)
-  %		 % Setup code
-  %	 end
-  % end
-  %
-  % methods (TestMethodTeardown)
-  %	 function teardown(testCase)
-  %		 % Teardown code
-  %	 end
-  % end
-
-  methods(Static)
-    function runTests(varargin) % Define convenience functions for running tests.
-
-      % ⋘──────── Build a list of test strings ────────⋙
-      test_class_name = "TestConvexPolyhedron";
-      if isempty(varargin) 
-        % If no arguments given, run all of the tests.
-        test_strings = test_class_name;
-      else
-        % If an argument is given, run construct a list of test functions to run.
-        test_strings = cellfun(@(function_name) test_class_name + "/" + function_name, varargin);
-      end
-
-      % ⋘──────── Run tests ────────⋙
-      results = runtests(test_strings);
-
-      % ⋘──────── Print results ────────⋙
-      fprintf(...
-        "%d Passed, %d Failed, %d Incomplete.\n", ...
-        sum([results.Passed]), sum([results.Failed]), sum([results.Incomplete])...
-      );
-    end % End of function
-  end % End static methods block
+  % ! You can run these tests with 
+  % ` runtests TestConvexPolyhedron
 
   % ╭───────────────────────────────────╮
   % │ ╭───────────────────────────────╮ │
@@ -49,9 +13,9 @@ classdef TestConvexPolyhedron < matlab.unittest.TestCase
     % ╰───────────────────────────────────────────────────╯
     function test_eq_basicEquality(testCase)
       % ⋘────────── Setup ───────────⋙
-      cp1_equal    = ConvexPolyhedron.fromConvexHull([[1; 1], [0; 0], [-1; 2]]);
-      cp2_equal    = ConvexPolyhedron.fromConvexHull([[1; 1], [0; 0], [-1; 2]]);
-      cp3_notEqual = ConvexPolyhedron.fromConvexHull([[1; 1], [0; 3], [-1; 2]]);
+      cp1_equal    = Polytope.fromConvexHull([[1; 1], [0; 0], [-1; 2]]);
+      cp2_equal    = Polytope.fromConvexHull([[1; 1], [0; 0], [-1; 2]]);
+      cp3_notEqual = Polytope.fromConvexHull([[1; 1], [0; 3], [-1; 2]]);
       
       % ⋘────────── Execute and  Verify ──────────⋙
       testCase.assertEqual(cp1_equal, cp1_equal, "same object");
@@ -68,14 +32,14 @@ classdef TestConvexPolyhedron < matlab.unittest.TestCase
 
     function test_eq_permutedVertexOrder(testCase)
       % ⋘────────── Setup ───────────⋙
-      cp1_equal    = ConvexPolyhedron.fromConvexHull([[1; 1], [0; 0], [-1; 2]]);
-      cp2_equal    = ConvexPolyhedron.fromConvexHull([[0; 0], [1; 1], [-1; 2]]);
-      cp3_notEqual = ConvexPolyhedron.fromConvexHull([[1; 1], [0; 3], [-1; 2]]);
+      cp1_equal    = Polytope.fromConvexHull([[1; 1], [0; 0], [-1; 2]]);
+      cp2_equal    = Polytope.fromConvexHull([[0; 0], [1; 1], [-1; 2]]);
+      cp3_notEqual = Polytope.fromConvexHull([[1; 1], [0; 3], [-1; 2]]);
       
       % ⋘────────── Execute and  Verify ──────────⋙
       % Test operators correctly produce "true".
-      testCase.assertTrue( cp1_equal == cp1_equal,    "Same object with ""=="" operator");
-      testCase.assertTrue( cp1_equal == cp2_equal,    "Equal with ""=="" operator");
+      testCase.assertTrue( cp1_equal == cp1_equal,    """=="" operator is reflexive");
+      testCase.assertTrue( cp1_equal == cp2_equal,    pwintz.strings.format("Equivalent objects %s and %s are equal with ""=="" operator", cp1_equal, cp2_equal));
       testCase.assertTrue( cp1_equal ~= cp3_notEqual, "Not equal with ""~="" operator");
       % Test operators correctly produce "false".
       testCase.assertFalse(cp1_equal == cp3_notEqual, "Not equal with ""=="" operator");
@@ -87,7 +51,7 @@ classdef TestConvexPolyhedron < matlab.unittest.TestCase
     % ╰───────────────────────────────────────────╯
     function test_contains_singlePoint(testCase)
       % ⋘────────── Setup ───────────⋙
-      p = ConvexPolyhedron.fromConvexHull([[10; 0], [ 0; 0], [0; 10], [10; 10]]);
+      p = Polytope.fromConvexHull([[10; 0], [ 0; 0], [0; 10], [10; 10]]);
 
       % ⋘────────── Execute and Verify ──────────⋙
       testCase.verifyTrue(p.contains([1; 1]),   "Interior point");
@@ -101,11 +65,37 @@ classdef TestConvexPolyhedron < matlab.unittest.TestCase
 
     function test_contains_multiplePoints(testCase)
       % ⋘────────── Setup ───────────⋙
-      p = ConvexPolyhedron.fromConvexHull([[10; 0], [ 0; 0], [0; 10], [10; 10]]);
+      p = Polytope.fromConvexHull([[10; 0], [ 0; 0], [0; 10], [10; 10]]);
 
       % ⋘────────── Execute and Verify ──────────⋙
       testCase.verifyEqual(p.contains([[1; 1], [10; 0], [-1; 0]]), logical([1 1 0]));
     end % End of function.
+
+
+    % ╭──────────────────────────────────────────────────╮
+    % │  ╭────────────────────────────────────────────╮  │
+    % │  │             Inersection Method             │  │
+    % │  ╰────────────────────────────────────────────╯  │
+    % ╰──────────────────────────────────────────────────╯
+    function test_intersection_polyhedron_cap_polyhedron(testCase)
+      % ⋘────────── Setup ───────────⋙
+      h1 = HalfspaceRepresentation([-1,  0], [0]);
+      h2 = HalfspaceRepresentation([ 0, -1], [0]);
+
+      p1 = ConvexPolyhedron(h1);
+      p2 = ConvexPolyhedron(h2);
+      
+      % ⋘────────── Execute ─────────⋙
+      
+      p_cap_p = intersection(p1, p2);
+      
+      % ⋘────────── Verify ──────────⋙
+      testCase.assertInstanceOf(p_cap_p, "ConvexPolyhedron");
+      testCase.assertTrue(p_cap_p.contains([1; 1]));
+      testCase.assertFalse(p_cap_p.contains([-1; 1]));
+      testCase.assertFalse(p_cap_p.contains([1; -1]));
+    end % End of function.
+    
   end % End of test methods
 
 end

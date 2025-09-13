@@ -1,93 +1,32 @@
-classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
-  % Tests for this class are located in TestConvexPolyhedron and can be run using ConvexPolyhedron.test().
+classdef ConvexPolyhedron < handle
+  % Tests for this class are located in TestConvexPolyhedron and can be run using 
+  % ` runtests TestConvexPolyhedron
 
-
-  properties(SetAccess = immutable)
+  properties(SetAccess = immutable, GetAccess = protected)
     % Define instance constants.
-    vertices (2, :) double;
     dimension (1, 1) int32;
-  end
-  properties(SetAccess = immutable, GetAccess = private)
-    % Define private variables.
-    % first_vertex_ndx
-    % center
-    n_vertices; % Use this.count() to get number vertices
+    halfspace_representation (1, 1) HalfspaceRepresentation;
   end
 
   methods(Static)
-    function convex_polyhedron = fromConvexHull(points)
-      dimension = size(points, 1);
-      assert(dimension == 2, "Each column in 'points' must have two elements. Instead it had %d.", size(points, 1));
-      indices = convhull(points', 'simplify', true);
-      % The output of convhull is an array of indices from the "points" list such that the points are arranged counter-clockwise, with the first one repeated at the end. We trim the last index so that 
-      vertices = points(:, indices(1:end-1));
-      convex_polyhedron = ConvexPolyhedron(vertices);
-    end
-    
-    % We define 
-    function convex_polyhedron = fromPoint(point)
-      assert(iscolumn(point), "point must be a column");
-      assert(size(point, 1) == 2, "Each column in point must have two elements. Instead it had %d.", size(point, 1));
-      convex_polyhedron = ConvexPolyhedron(point);
-    end
-    
-    function convex_polyhedron = fromLine(p1, p2)
-      assert(iscolumn(p1), "p1 must be a column vector");
-      assert(iscolumn(p2), "p2 must be a column vector");
-      assert(norm(p1 - p2) > 0, "points must be distinct");
-      convex_polyhedron = ConvexPolyhedron([p1, p2]);
-    end
 
     function array = arrayOfEmpty(m, n)
       array = ConvexPolyhedron.empty(m, 0);
       array(1:m, 1:n) = ConvexPolyhedron();
     end
 
-    % function convex_polyhedron = fromTriangle(p1, p2, p3)
-    %   assert(iscolumn(p1), "p1 must be a column vector")
-    %   assert(iscolumn(p2), "p2 must be a column vector")
-    %   assert(iscolumn(p3), "p3 must be a column vector")
-    %   assert(norm(p1 - p2) > 0, "points must be distinct")
-    %   assert(norm(p1 - p2) > 0, "points must be distinct")
-    %   convex_polyhedron = ConvexPolyhedron([p1, p2]);
-    % end
-
-    function tests(varargin) % Define convenience functions for running tests.
-      TestConvexPolyhedron.runTests(varargin{:});
-    end % End of function
   end
 
-  methods(Access=private)
+  methods
     % Constructor
-    function this = ConvexPolyhedron(vertices)
-      if nargin() == 0 || isempty(vertices)
-        vertices = double.empty(2, 0);
+    function this = ConvexPolyhedron(halfspace_representation)
+      if nargin() == 0
+        halfspace_representation = HalfspaceRepresentation();
       end
-
-      dimension = size(vertices, 1);
-      assert(dimension == 2, "Each column in vertices must have two elements. Instead size(vertices) = %s.", size(vertices));
-      this.vertices =  vertices;
+      dimension = halfspace_representation.ambient_dimension;
+      % assert(ismember(dimension, [2,3]), "Each column in vertices must have two or three elements. Instead dimension = %d.", dimension);
+      this.halfspace_representation = halfspace_representation;
       this.dimension = dimension;
-      % ! If isempty(vertices), then we can still have size(vertices, 2) > 0, since the shape of vertices can be 0xN for N > 0.
-      if isempty(vertices)
-        this.n_vertices = 0;
-      else
-        this.n_vertices = size(vertices, 2);
-      end
-
-      % TODO: Check that polyhedron is convex.
-%       this.center = mean(vertices, 1);
-% 
-%       % ⋘────────── Find lexicographically "first" vertex ──────────⋙
-%       [~, y_min_ndxs] = min(vertices(2,:));
-%       if numel(y_min_ndxs) == 1
-%         this.first_vertex_ndx = y_min_ndxs;
-%       else
-%         [~, x_min_ndx] = min(vertices(1, y_min_ndxs));
-%         assert(numel(x_min_ndx) == 1, "There should be a unique 'first' vertex")
-%         this.first_vertex_ndx = y_min_ndxs(x_min_ndx);
-%       end
-%       this.first_vertex_ndx 
     end
   end
 
@@ -97,34 +36,20 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
     % │ │             Queries              │ │
     % │ ╰──────────────────────────────────╯ │
     % ╰──────────────────────────────────────╯
-    function v = getVertex(this, ndx)
-      v = this.vertices(:, ndx);
-    end % End of function
 
-    function [is_member, v_ndx] = isVertex(this, v)
-      [is_member, v_ndx] = ismembertol(v', this.vertices', 1e-6, 'ByRows', true);
-      assert(size(v_ndx, 2) <= 1, 'Vertices are unique, show only one vertex expected.');
-    end % End of function
-
-    function TF = contains(this, points)
+    function is_point_in_poly = contains(this, points)
       % Use "isPointInPolygon" from the matGeom package.
-      TF =  isPointInPolygon(points', this.vertices')';
+      is_point_in_poly = this.halfspace_representation.containsPoints(points);
+      % TF =  isPointInPolygon(points', this.vertices')';
     end % End of function
 
-    % ╭───────────────────────────────────────────────╮
-    % │ ╭───────────────────────────────────────────╮ │
-    % │ │             Vertex Operations             │ │
-    % │ ╰───────────────────────────────────────────╯ │
-    % ╰───────────────────────────────────────────────╯
-    
-    function poly = Vertex(this, v)
-      [is_member, v_ndx] = this.isVertex(v);
-      if ~is_member
-        warning("ConvexPolyhedron:notAVertex","The vertex %s was not in this polyhedron, which has vertices=%s.", mat2str(v), mat2str(this.vertices));
-      end
-      vertices_without_v  = this.vertices(:, setdiff(1:end, v_ndx));
-      poly = ConvexPolyhedron(vertices_without_v);
-    end % End of function
+    function is_bounded = isBounded(this)
+      is_bounded = this.halfspace_representation.isBounded();
+    end
+
+    function is_unbounded = isUnbounded(this)
+      is_unbounded = ~this.halfspace_representation.isBounded();
+    end
 
     % ╭────────────────────────────────────────────╮
     % │ ╭────────────────────────────────────────╮ │
@@ -135,12 +60,19 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
       % ! We do a simple and inefficient implementation of the Minkowski sum here. 
       % ! It should be fine for small numbers of points, but the complexity is O(m*n) (or worse) instead of O(m + n), where m and n are the numbers of vertices in each polygon.
 
+      if isa(right, "ConvexPolyhedralCone")
+        result = right.minkowskiSum(left);
+        return
+      end
+      disp("Using Polytope/minkowskiSum for sum of two polytopes.");
+      error("Polytope/minkowskiSum is not implemented.");
+
       % ⋘────────── Get Vertices of Operands ──────────⋙
       left_vertices   = ConvexPolyhedron.verticesFromOperand(left);
       right_vertices  = ConvexPolyhedron.verticesFromOperand(right);
 
       % ⋘────────── Get numbers of vertices ──────────⋙
-      n_left = size(left_vertices, 2);
+      n_left  = size(left_vertices, 2);
       n_right = size(right_vertices, 2);
       n_points = n_left * n_right;
 
@@ -169,31 +101,38 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
     end
 
     function result = intersection(left, right)
-      % ⋘────────── Define a utility function ──────────⋙
-      uniqueCols = @(array) unique(array', 'rows', 'stable')';
-      
-      % ⋘────────── Get vertices of operands ──────────⋙
-      left_vertices   = ConvexPolyhedron.verticesFromOperand(left);
-      right_vertices  = ConvexPolyhedron.verticesFromOperand(right);
-      
-      lastwarn(''); % Clear the last warning.
-      if size(left_vertices, 2) == 2
-        result = right.intersectRay(left_vertices);
-      elseif size(right_vertices, 2) == 2
-        result = left.intersectRay(right_vertices);
+      intersection_halfspace_representation = left.halfspace_representation.intersection(right.halfspace_representation);
+      if intersection_halfspace_representation.isBounded()
+        result = Polytope(intersection_halfspace_representation);
       else
-        vertices1 = uniqueCols(left_vertices);
-        vertices2 = uniqueCols(right_vertices);
-        poly1 = polyshape(vertices1(1,:), vertices1(2,:));
-        poly2 = polyshape(vertices2(1,:), vertices2(2,:));
-        poly_intersection = intersect(poly1, poly2);
-        intersection_vertices = poly_intersection.Vertices';
-        result = ConvexPolyhedron(intersection_vertices);
+        result = ConvexPolyhedron(intersection_halfspace_representation);
       end
-      warnmsg = lastwarn(); % Get the last warning
-      if warnmsg ~= ""
-        fprintf('There was a warning produced while finding the intersection between \n%sand \n%s\n', left, right);
-      end
+
+      return
+      
+
+      % % ⋘────────── Get vertices of operands ──────────⋙
+      % left_vertices   = ConvexPolyhedron.verticesFromOperand(left);
+      % right_vertices  = ConvexPolyhedron.verticesFromOperand(right);
+      % 
+      % lastwarn(''); % Clear the last warning.
+      % if size(left_vertices, 2) == 2
+      %   result = right.intersectRay(left_vertices);
+      % elseif size(right_vertices, 2) == 2
+      %   result = left.intersectRay(right_vertices);
+      % else
+      %   vertices1 = pwintz.arrays.uniqueColumns(left_vertices);
+      %   vertices2 = pwintz.arrays.uniqueColumns(right_vertices);
+      %   poly1 = polyshape(vertices1(1,:), vertices1(2,:));
+      %   poly2 = polyshape(vertices2(1,:), vertices2(2,:));
+      %   poly_intersection = intersect(poly1, poly2);
+      %   intersection_vertices = poly_intersection.Vertices';
+      %   result = ConvexPolyhedron(intersection_vertices);
+      % end
+      % warnmsg = lastwarn(); % Get the last warning
+      % if warnmsg ~= ""
+      %   fprintf('There was a warning produced while finding the intersection between \n%sand \n%s\n', left, right);
+      % end
     end
 
     function result = intersectRay(this, v)
@@ -214,8 +153,32 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
     end
 
     function result = linearTransform(this, A)
-      assert(cond(A) < 1e9, "Only implemented for invertible A, for now. Otherwise we need to set collapses to a lower.");
-      result = ConvexPolyhedron(A*this.vertices);
+      error("Deprectated. Use a polytope or convexpolyhedralcone.");
+      % assert(cond(A) < 1e9, "Only implemented for invertible A, for now. Otherwise we need to set collapses to a lower.");
+      % result = ConvexPolyhedron(A*this.vertices);
+    end
+
+    function result = atXDoesVPointInward(this, bnd_point, vector)
+      arguments(Input)
+        this;
+        bnd_point (:, 1) double;
+        vector    (:, 1) double;
+      end % End of Input arguments block
+      arguments(Output)
+        result logical {pwintz.validators.mustBeScalar};
+      end % End of Output arguments block
+      
+      [A_active, ~] = this.halfspace_representation.activeInequalityConstraintsAtPoint(bnd_point);
+      A_eq = this.halfspace_representation.A_eq;
+
+      % The point "bnd_point" is on the boundary, so A_active*bnd_point = b_active.
+      % We want to test if A_active*(bnd_point + vector) is <= or > b_active, which is the same as asking if 
+      % A_active*vector) is positive or negative.
+      result = all(A_active * vector <= 0) && all(abs(A_eq * vector) < 1e-7);
+
+      % assert(this.halfspace_representation.n_equality_constraints == 0, "Not implemented for equality constraints.");
+      % A_eq = this.halfspace_representation.A_eq;
+      % assert(all(abs(A_eq * v) < 1e-6));
     end
 
     % ╭──────────────────────────────────────────────────────╮
@@ -223,15 +186,15 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
     % │ │             Overload Default Methods             │ │
     % │ ╰──────────────────────────────────────────────────╯ │
     % ╰──────────────────────────────────────────────────────╯
-    % ╭───────────────────────────────────────────────────────────────────────╮
-    % │             Make ConvexPolyhedron Behave Like a Container             │
-    % ╰───────────────────────────────────────────────────────────────────────╯
-    function result = isempty(this)
-      result = isempty(this.vertices);
-    end
-    function result = count(this)
-      result = size(this.vertices, 2);
-    end
+    % % ╭───────────────────────────────────────────────────────────────────────╮
+    % % │             Make ConvexPolyhedron Behave Like a Container             │
+    % % ╰───────────────────────────────────────────────────────────────────────╯
+    % function result = isempty(this)
+    %   result = isempty(this.vertices);
+    % end
+    % function result = count(this)
+    %   result = size(this.vertices, 2);
+    % end
 
     % ╭────────────────────────────────────────────╮
     % │             Overload Operators             │
@@ -253,9 +216,17 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
 
     % Overload "==" operator
     function is_equal = eq(left, right)
+
+      % These checks to not test allow for tolerance and depend on vertices, which is only available for polytopes.
       left_subset_right = all(ismember( left.vertices', right.vertices', 'rows'));
       right_subset_left = all(ismember(right.vertices',  left.vertices', 'rows'));
       is_equal = left_subset_right && right_subset_left;
+
+
+      % We should use an equality check in the halfspace representation. 
+      is_equal = left.halfspace_representation == right.halfspace_representation;
+
+
     end % End of function
     
     % Overload "~=" operator
@@ -275,13 +246,7 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
         str char; % Ensure output is cast to char, even if you create a string.
       end 
       
-      if this.n_vertices == 0
-        str = sprintf('ConvexPolyhedron with 0 vertices (empty).\n');
-      elseif this.n_vertices == 1
-        str = sprintf('ConvexPolyhedron with 1 vertex: \n%s\n', formattedDisplayText(this.vertices));
-      else
-        str = sprintf('ConvexPolyhedron with %d vertices: \n%s\n', this.n_vertices, formattedDisplayText(this.vertices));
-      end
+      str = sprintf('ConvexPolyhedron with halfspace representation: \n%s\n', this.halfspace_representation);
     end
 
     function disp(this)
@@ -289,23 +254,14 @@ classdef ConvexPolyhedron < handle % & matlab.mixin.CustomDisplay
         fprintf('%dx%d ConvexPolyhedron array\n', size(this, 1), size(this, 2))
         return
       end
-      if this.n_vertices == 0
-        fprintf("ConvexPolyhedron with 0 vertices (empty).\n");
-      elseif this.n_vertices == 1
-        fprintf("ConvexPolyhedron with 1 vertex: \n%s\n", formattedDisplayText(this.vertices));
-      else
-        fprintf("ConvexPolyhedron with %d vertices: \n%s\n", this.n_vertices, formattedDisplayText(this.vertices));
-      end
+
+      fprintf("%s\n", char(this))
     end
 
     function out = isequaln(left, right)
       out = eq(left, right);
     end % End of function
-
-    function plot(this, varargin)
-      patch('XData', this.vertices(1, :),'YData', this.vertices(2, :), varargin{:});
-    end % End of function
-
+    
   end% End of methods block
 
   methods(Access=private, Static)

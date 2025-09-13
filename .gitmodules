@@ -1,3 +1,6 @@
 [submodule "+pwintz"]
 	path = +pwintz
 	url = ./+pwintz
+[submodule "+polyhedron"]
+	path = +polyhedron
+	url = ./+polyhedron/

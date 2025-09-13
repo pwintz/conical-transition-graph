@@ -1,6 +1,7 @@
 classdef TransitionGainDigraph < handle
   % A class for storing the transitions between cones and vertices in a conical partition. Each transition has associated gains.
-  
+  % ` runtests TestTransitionGainDigraph
+
   properties(SetAccess=private, GetAccess = protected)
     % Define private variables.
     % !! The gains_digraph is mutable because we add edges to it. 
@@ -33,7 +34,7 @@ classdef TransitionGainDigraph < handle
       union_edges = [
         tgd_left.gains_digraph.Edges;
         tgd_right.gains_digraph.Edges;
-      ]
+      ];
       % union_tgd.gains_digraph.Edges = union_edges;
       union_tgd.gains_digraph = union_tgd.gains_digraph.addedge(union_edges);
     end % End of function
@@ -44,7 +45,7 @@ classdef TransitionGainDigraph < handle
     % Constructor
     function this = TransitionGainDigraph(conical_partition)
       Names = ["Vertex " + conical_partition.vertex_indices'; "Cone " + conical_partition.cone_indices'];
-      % conical_partition.vertex_indices;
+
       VertexIndex = [conical_partition.vertex_indices'; 0 * conical_partition.cone_indices'];
       ConeIndex   = [0*conical_partition.vertex_indices'; conical_partition.cone_indices'];
 
@@ -54,11 +55,13 @@ classdef TransitionGainDigraph < handle
       VertexTeXLabels = vertexIndicesToTexLabels(conical_partition.vertex_indices);
       ConeTeXLabels   = coneIndicesToTexLabels(conical_partition.cone_indices);
 
-      Objects = [num2cell(conical_partition.vertices, 1), conical_partition.cones]';
+      Objects = [num2cell(conical_partition.vertices, 1), num2cell(conical_partition.cones)]';
       TeXLabel = [VertexTeXLabels; ConeTeXLabels];
 
-      cone_centers = cell2mat(cellfun(@(convex_poly) centroid(convex_poly.vertices')', conical_partition.cones, "UniformOutput", false));
-      PlotPosition = [conical_partition.vertices'; cone_centers'];
+      cone_centers = arrayfun(@(cone) centroid(cone.rays')', conical_partition.cones, "UniformOutput", false);
+      % cone_centers = cell2mat(cellfun(@(convex_poly) centroid(convex_poly.vertices')', conical_partition.cones, "UniformOutput", false));
+      vert_cell_array = num2cell(conical_partition.vertices, 1);
+      PlotPosition = [vert_cell_array, cone_centers];
 
       % ╭────────────────────────────────────────────────╮
       % │             Construct gain_digraph             │
@@ -66,14 +69,25 @@ classdef TransitionGainDigraph < handle
       if exist("gain_digraph", "var")
         this.gains_digraph = gains_digraph;
       else
-        node_table = table(...
-          Names,          ...
-          Objects,        ...
-          PlotPosition,   ...
-          VertexIndex,    ...
-          ConeIndex,      ...
-          TeXLabel        ...
+        PlotPosition = [PlotPosition{:}]';        
+        node_table = pwintz.tables.makeTable(...
+          "Names", Names, ...
+          "Objects", Objects, ...
+          "PlotPosition", PlotPosition, ...
+          "VertexIndex", VertexIndex, ...
+          "ConeIndex", ConeIndex, ...
+          "TeXLabel", TeXLabel...
         );
+
+        % node_table = table(...
+        %   Names,          ...
+        %   Objects,        ...
+        %   PlotPosition,   ...
+        %   VertexIndex,    ...
+        %   ConeIndex,      ...
+        %   TeXLabel        ...
+        % )
+        % node_table
 
         edge_table = struct2table(struct(...
           "EndNodes", double.empty(0, 2), ...
@@ -84,8 +98,6 @@ classdef TransitionGainDigraph < handle
         this.gains_digraph = digraph(edge_table, node_table);
       end % End of if block.
       this.conical_partition = conical_partition;
-
-      
     end
   end % End methods block
 
@@ -279,6 +291,7 @@ classdef TransitionGainDigraph < handle
     % │             Reachability             │
     % ╰──────────────────────────────────────╯
     function vertex_reach_table = getReachableSetFromVertex(this, vertex_ndx, depth, cumulativeMinGain, cumulativeMaxGain, vertex_reach_table, search_depth)
+      assert(ismember(nargin(), [2, 7]), "Expected 2 or 7 arguments. Instead had %d", nargin());
       if nargin() == 2
         % if ~exist("vertex_reach_table", "var")
         depth = 0;
@@ -290,6 +303,7 @@ classdef TransitionGainDigraph < handle
           "cumulativeMinGain", cumulativeMinGain,  ...
           "cumulativeMaxGain", cumulativeMaxGain  ...
         ));
+        search_depth = 20; % How many times to recurse??
       else 
         assert(nargin() == 7, "Expected 1 input or 7. Instead had %d.", nargin());
         if depth == search_depth
@@ -297,21 +311,15 @@ classdef TransitionGainDigraph < handle
         end 
       end % End of if block.
       depth = depth + 1;
-      cumulativeMinGain 
-      cumulativeMaxGain 
-      successors = this.gains_digraph.successors(vertex_ndx)'
+      successors = this.gains_digraph.successors(vertex_ndx)';
       if isempty(successors)
         return
       end
       for next_vertex_ndx = this.gains_digraph.successors(vertex_ndx)'
-        vertex_ndx
-        next_vertex_ndx
-        this.getEdgesFromVertexToVertex(vertex_ndx, next_vertex_ndx)
+        this.getEdgesFromVertexToVertex(vertex_ndx, next_vertex_ndx);
         
-        vertex_reach_table = this.getReachableSetFromVertex(next_vertex_ndx, depth, cumulativeMinGain, cumulativeMaxGain, vertex_reach_table, search_depth)
+        vertex_reach_table = this.getReachableSetFromVertex(next_vertex_ndx, depth, cumulativeMinGain, cumulativeMaxGain, vertex_reach_table, search_depth);
       end
-      % reachable_convex_polyhedrons = {};
-      % if depth = 
     end
 
     % ╭──────────────────────────────────────────╮
@@ -334,23 +342,23 @@ classdef TransitionGainDigraph < handle
     end % End of function
 
     function [cycles_nodes, cycles_edges] = getVertexCycles(this)
-      vertex_graph = subgraph(this.gains_digraph, this.node_ndxs_of_vertices)  
+      vertex_graph = subgraph(this.gains_digraph, this.node_ndxs_of_vertices)  ;
       [cycles_nodes, cycles_edges] = vertex_graph.allcycles();
     end % End of function
 
     function [cycle_min_gains, cycle_max_gains, cycles_nodes, cycles_edges] = getCycleGains(this)
       [cycles_nodes, cycles_edges] = this.getCycles();
-      cycle_min_gains = nan(size(cycles_edges))
-      cycle_max_gains = nan(size(cycles_edges))
+      cycle_min_gains = nan(size(cycles_edges));
+      cycle_max_gains = nan(size(cycles_edges));
 
       assert(isvector(cycles_edges), "Expected cycles_edges to be 1-dimensional. Instead its size was %s.", mat2str(size(cycles_edges)));
       for i_cycle = 1:numel(cycles_edges)
-        cycle_edges = cycles_edges{i_cycle}
+        cycle_edges = cycles_edges{i_cycle};
         
-        cycle_path_min_gains = this.gains_digraph.Edges.MinGain(cycle_edges)
-        cycle_path_max_gains = this.gains_digraph.Edges.MaxGain(cycle_edges)
-        cycle_min_gains(i_cycle) = prod(cycle_path_min_gains)
-        cycle_max_gains(i_cycle) = prod(cycle_path_max_gains)
+        cycle_path_min_gains = this.gains_digraph.Edges.MinGain(cycle_edges);
+        cycle_path_max_gains = this.gains_digraph.Edges.MaxGain(cycle_edges);
+        cycle_min_gains(i_cycle) = prod(cycle_path_min_gains);
+        cycle_max_gains(i_cycle) = prod(cycle_path_max_gains);
       end
     end % End of function
 
@@ -473,7 +481,9 @@ classdef TransitionGainDigraph < handle
 
     function disp(this)
       fprintf('%s\n', this);
+      disp("Nodes");
       disp(this.gains_digraph.Nodes);
+      disp("Edges");
       disp(this.gains_digraph.Edges);
     end % End of function
 

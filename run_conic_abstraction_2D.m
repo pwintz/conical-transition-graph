@@ -1,20 +1,18 @@
-
-
-% figure(1);
-% clf();
-% hold on
-% pwintz.plots.plotVector2([0; 0], [1; 1], 'r')
-% pwintz.plots.plotVector2([1; 1], [0; -1], 'b')
-% return
-
 % rng(1);
 randomize_matrices = false;
-% randomize_matrices = true;
-randomize_matrices = ~exist("Ac", "var") || ~exist("Ad", "var") || randomize_matrices;
+randomize_matrices = true;
+randomize_matrices = ~exist("Ac", "var") || ~exist("Ad", "var") || ~all(size(Ac) == [2, 2]) || randomize_matrices;
 if randomize_matrices
   Ac = randn(2, 2);
   Ad = randn(2, 2);
 end
+
+Ac = [-1, -0.6; 
+       5, -1]
+Ad = [
+  -1, 1;
+  -0.5, -5;
+]
 
 % ! These matrices result in a nice alignment of C, D, and G(D). 
 % Ac = [
@@ -40,34 +38,33 @@ end
 
 % conical_partition = ConicalPartition.fromNumSlices(10);
 flow_set_angles = [0, pi];
-jump_set_angles = [pi-0.8, pi+0.0];
-conic_abstraction = ConicAbstraction.fromAngles(...
+jump_set_angles = [pi-0.2, pi+0.0];
+conic_abstraction = ConicAbstraction.fromAngles2D(...
   "flowMapMatrix", Ac, ...
-  "jumpMapMatrix", Ad,...
-  "flowSetAngles", flow_set_angles,...
-  "jumpSetAngles", jump_set_angles,...
-  "maxStateConeAngle", 2*pi/50, ...
-  "maxDerivativeConeAngle", 2*pi/50 ...
+  "jumpMapMatrix", Ad, ...
+  "flowSetAngles", flow_set_angles, ...
+  "jumpSetAngles", jump_set_angles, ...
+  "maxStateConeAngle", 2*pi/4, ...
+  "maxDerivativeConeAngle", 2*pi/100 ...
 );
 conical_partition = conic_abstraction.conical_partition;
 flow_graph        = conic_abstraction.flow_transition_graph;
 jump_graph        = conic_abstraction.jump_transition_graph;
-% return
+ctg               = conic_abstraction.ctg;
+tri               = conical_partition.triangulation;
 
-% pwintz.plots.namedFigure("flow transition graph");
-% clf();
-% xlim(1.3*[-1, 1]);
-% ylim(1.3*[-1, 1]);
-% axis square;
-% hold on;
-% conic_abstraction.plotCones();
-% conic_abstraction.flow_transition_graph.plot();
-% conic_abstraction.jump_transition_graph.plot();
+pwintz.plots.namedFigure("flow transition graph");
+clf();
+xlim(1.3*[-1, 1]);
+ylim(1.3*[-1, 1]);
+axis square;
+hold on;
+conic_abstraction.plotCones();
+conic_abstraction.flow_transition_graph.plot();
+conic_abstraction.jump_transition_graph.plot();
 
-% conic_abstraction.hasUnstableFlows()
+conic_abstraction.hasStableFlows()
 
-
-% return
 
 % ╭───────────────────────────────────────────────────────────────────────╮
 % │             Test why one edge was missing from flow graph             │
@@ -154,58 +151,37 @@ hold on;
 %   "edges", flow_graph.Edges.VertexNdxs ...
 % )
 % drawGraph(matgeom_flow_graph)
-% return
 
 pwintz.plots.plotUnitCircle();
 pwintz.plots.plotLinearVectorField(Ac);
 conic_abstraction.plotCones();
+
+
 conic_abstraction.ctg.plot();
-% conic_abstraction.plotConesReachableFromVertices();
+conic_abstraction.plotConesReachableFromVertices();
 % conic_abstraction.plotVerticesReachableFromCones();
 % conic_abstraction.plotFlowGraph();
 % conic_abstraction.plotJumpGraph();
 
 % contracted_flow_transition_graph.plot();
 
+pwintz.strings.format("      n_flow_set_cones: %d\t       flow_set_cone_ndxs: %d", conic_abstraction.n_flow_set_cones, conic_abstraction.flow_set_cone_ndxs)
+pwintz.strings.format("      n_jump_set_cones: %d\t       jump_set_cone_ndxs: %d", conic_abstraction.n_jump_set_cones, conic_abstraction.jump_set_cone_ndxs)
+pwintz.strings.format("n_jump_set_image_cones: %d\t jump_set_image_cone_ndxs: %d", conic_abstraction.n_jump_set_image_cones, conic_abstraction.jump_set_image_cone_ndxs)
 
 if  conic_abstraction.hasStableFlows()
   disp("The flow component of the system is stable.");
 else
   disp("The flow component of the system may be unstable.");
-end % End of if "conic_abstraction.hasUnstableFlows()"
+end % End of if "conic_abstraction.hasStableFlows()"
 
 if conic_abstraction.is_origin_asymptotically_stable
   fprintf("The origin of the system is stable!\n");
 else 
   fprintf("The system may be unstable!\n");
 end
-return
+return % TODO: Remove
 
-% ╭─────────────────────────────────────────────────────────╮
-% │  ╭───────────────────────────────────────────────────╮  │
-% │  │             Find Paths from G(D) to D             │  │
-% │  ╰───────────────────────────────────────────────────╯  │
-% ╰─────────────────────────────────────────────────────────╯
-for jump_set_image_cone_ndx = conic_abstraction.jump_set_image_cone_ndxs
-  for jump_set_cone_ndx = conic_abstraction.jump_set_cone_ndxs
-
-    [paths_node_ndxs, paths_edge_ndxs, paths_edge_rows] = conic_abstraction.flow_transition_graph.getPathsBetweenCones(jump_set_image_cone_ndx, jump_set_cone_ndx);
-    if ~isempty(paths_node_ndxs)
-      fprintf('There are %d paths from cone %d to cone %d:\n', numel(paths_node_ndxs), jump_set_image_cone_ndx, jump_set_cone_ndx);
-      for i = 1:numel(paths_node_ndxs)
-        path_node_ndxs = paths_node_ndxs{i};
-        path_edge_ndxs = paths_edge_ndxs{i};
-        path_edge_rows = paths_edge_rows{i};
-        assert(~isempty(path_edge_ndxs) || jump_set_image_cone_ndx == jump_set_cone_ndx);
-        [min_gain, max_gain] = conic_abstraction.flow_transition_graph.getPathGains(path_edge_ndxs);
-        fprintf('\tPath %s has min_gain = %.2g and max_gain = %.2g.\n', mat2str(path_node_ndxs'), min_gain, max_gain);
-      end % End of for block
-    end
-
-  end % End for loop over "conic_abstraction.jump_set_cone_ndxs
-end % End for loop
-
-return
 
 for cone_ndx = conical_partition.cone_indices
   circle_overapproximation = conical_partition.getUnitSphereOverApproximationInCone(cone_ndx);
@@ -228,33 +204,58 @@ for vertex_ndx = conical_partition.vertex_indices
   end
 end
 
-return
+return % TODO: Remove
 
-angles = pwintz.arrays.range(0, 2*pi,...
+angles = pwintz.arrays.range(0, 2*pi, ...
    "n_values", 20, "includeEnd", false);
 conical_partition = ConicalPartition.fromAngles2D(angles);
 
-graph = conical_partition.vertex_graph;
+graph = conical_partition.mesh_graph;
 vertex_table = conical_partition.vertex_table;
 % cone_table   = conical_partition.cone_table;
 vertex_table.('position');
-cell2mat(vertex_table{1, "adjacent_face_ndxs"});
-cell2mat(vertex_table{2, "adjacent_face_ndxs"});
+cell2mat(vertex_table{1, "adjacent_cones_ndxs"});
+cell2mat(vertex_table{2, "adjacent_cones_ndxs"});
 
-vertex_table.adjacent_face_ndxs{1};
+vertex_table.adjacent_cones_ndxs{1};
 
 face_vertices = [graph.nodes(graph.faces(:, 1), :), graph.nodes(graph.faces(:, 2), :), graph.nodes(graph.faces(:, 3), :)];
 
-
 [polygon] = grFaceToPolygon(graph, 1);
 
+% ╭────────────────────────────────────────────────────────────╮
+% │             Draw Condes Adjacent to Boundaries             │
+% ╰────────────────────────────────────────────────────────────╯
+for ray_ndx = conical_partition.ray_indices
+  ray = conical_partition.getRay(ray_ndx);
+  adjacent_cone_ndxs = conical_partition.getConesAdjacentToRay(ray_ndx);
+  figure(1);
+  clf();
+  xlim(1.0*[-1, 1]);
+  ylim(1.0*[-1, 1]);
+  axis square;
+  hold on;
+  pwintz.plots.plotVector2(ray, plotArgs={"LineWidth", 12})
+  adjacent_cones = conical_partition.getCone(adjacent_cone_ndxs)
+  testCase.assertNumElements(adjacent_cone_ndxs, 2, "Each rays whould have 2 adjacent_cone_ndxs");
+  testCase.assertNumElements(adjacent_cones, 2, "Each rays whould have 2 adjacent_cones");
+  for cone = adjacent_cones
+    assert(cone.n_rays == 2)
+    cone.plot();
+    % ray.plot()
+    drawnow();
+    pause(1);
+    % testCase.assertTrue(cone.contains(ray));
+    
+  end
+end
 
 
 % vertex_table
 % cone_table
-return
+return % TODO: Remove
 % % conical_partition
-% % conical_partition.vertex_graph
+% % conical_partition.mesh_graph
 % [nodes, edges] = gabrielGraph([conical_partition.vertices'; [0, 0]]);
 % 
 % % origin_ndx = find(nodes(:, 1) == 0 & nodes(:, 2) == 0);

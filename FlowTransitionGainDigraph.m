@@ -1,13 +1,15 @@
 classdef FlowTransitionGainDigraph < TransitionGainDigraph
+  % ` runtests TestFlowTransitionGainDigraph
+
   properties % Define instance variables.
     flow_set_cone_ndxs (1, :) {pwintz.validators.mustBeIndexVector};
     flow_map_matrix    (:, :) {pwintz.validators.mustBeSquare};
-    can_flow_from_vertex_into_cone (:, :) logical;
-    can_flow_from_cone_to_vertex   (:, :) logical;
-    % The (i,j) entry of directly_reachable_sets_from_vertex_through_cone contains 
+    can_flow_from_ray_into_cone (:, :) logical;
+    can_flow_from_cone_to_ray   (:, :) logical;
+    % The (i,j) entry of directly_reachable_sets_from_ray_through_cone contains 
     % the set that is reachable from vertex i by flowing through cone j.
-    directly_reachable_sets_from_vertex_through_cone   (:,:) ConvexPolyhedron; 
-    restricted_reachable_sets_from_unit_sphere_in_cone (1,:) ConvexPolyhedron;
+    directly_reachable_sets_from_ray_through_cone   (:,:) cell; % ConvexPolyhedron; 
+    restricted_reachable_sets_from_unit_sphere_in_cone (1,:) cell; % ConvexPolyhedron;
   end % End of properties block
 
   methods
@@ -16,90 +18,125 @@ classdef FlowTransitionGainDigraph < TransitionGainDigraph
       
       this.flow_set_cone_ndxs = flow_set_cone_ndxs;
       this.flow_map_matrix = flow_map_matrix;
-      cone_indices = conical_partition.cone_indices;
-      is_cone_in_flow_set = ismember(cone_indices, flow_set_cone_ndxs);
+      % cone_indices = conical_partition.cone_indices;
+      % is_cone_in_flow_set = ismember(cone_indices, flow_set_cone_ndxs);
 
       % ╭───────────────────────────────────────────────────────────────╮
       % │             Cone-Vertex Reachability Calculations             │
       % ╰───────────────────────────────────────────────────────────────╯
       % ⋘──────── Construct a list of cones that can be reached from each vertex ────────⋙
       % ⋘──────── Construct a list of vertices that can be reached from each cone ────────⋙
-      can_flow_from_vertex_into_cone = zeros(conical_partition.n_vertices, conical_partition.n_cones);
-      can_flow_from_cone_to_vertex   = zeros(conical_partition.n_cones,    conical_partition.n_vertices);
+      can_flow_from_ray_into_cone = zeros(conical_partition.n_rays, conical_partition.n_cones);
+      can_flow_from_cone_to_ray   = zeros(conical_partition.n_cones, conical_partition.n_rays);
       
-      for i_vertex_ndx = conical_partition.nonorigin_vertex_indices
-        i_vertex = conical_partition.getVertex(i_vertex_ndx);
-        for adjacent_cone_ndx = conical_partition.getConesAdjacentToVertex(i_vertex_ndx)
-          if ~is_cone_in_flow_set(adjacent_cone_ndx)
-            % If the cone is not in the flow set, then it's impossible to flow into it.
-            continue
-          end
-      
-          % Compute <Ac*v, n> where \dot x = Ac*x is the system's flow, v is a vertex in the boundary of the cone, and n is the normal vector to the cone.
-          [normal_vectors, bnd_vertex_ndxs] = conical_partition.getConeNormals(adjacent_cone_ndx);
-          normal_at_i_vertex = normal_vectors(:, bnd_vertex_ndxs == i_vertex_ndx);
-          % Compute \dot x = Ax for x = i_vertex.
-          flow_at_i_vertex = flow_map_matrix * i_vertex; 
-          pwintz.assertions.assertSize(normal_at_i_vertex, [2, 1]);
-      
-          % Sanity check.
-          assert(abs(dot(normal_at_i_vertex, i_vertex)) < 1e-6, 'The normal and vector must be orthogonal.');
-      
-          % If <Ac*v, n> >= 0, then it is possible to flow into the cone from v.
-          if dot(normal_at_i_vertex, flow_at_i_vertex) >= 0
-            can_flow_from_vertex_into_cone(i_vertex_ndx, adjacent_cone_ndx) = true;
-            % We use a (min/max) gain of 1.0 when flowing from a vertex to a cone because the distance flowed to reach the cone is zero.  
-            this.addEdgeFromVertexToCone(i_vertex_ndx, adjacent_cone_ndx, 1.0, 1.0);
+      for i_ray_ndx = conical_partition.ray_indices
+        ray = conical_partition.getRay(i_ray_ndx);
+        flow_dir = flow_map_matrix * ray; % Flow direction at "ray".
+
+        % If the cone is not in the flow set, then it's impossible to flow into it.
+        adjacent_flow_set_cone_ndxs = intersect(conical_partition.getConesAdjacentToRay(i_ray_ndx), flow_set_cone_ndxs);
+        for adjacent_cone_ndx = adjacent_flow_set_cone_ndxs
+          adj_cone = conical_partition.getCone(adjacent_cone_ndx);
+          
+          if adj_cone.atXDoesVPointInward(ray, flow_dir)
+            can_flow_from_ray_into_cone(i_ray_ndx, adjacent_cone_ndx) = true;
           else
-            can_flow_from_cone_to_vertex(adjacent_cone_ndx, i_vertex_ndx) = true;
-            this.addEdgeFromConeToVertex(adjacent_cone_ndx, i_vertex_ndx, 0, 1);
+            can_flow_from_cone_to_ray(i_ray_ndx, adjacent_cone_ndx) = true;
           end
-        end % End of "adjacent_cone_ndx" for loop.
-      end % End "i_vertex_ndx" for
       
-      assert(all(~can_flow_from_vertex_into_cone(conical_partition.origin_index, :)), "No cones can be reached from the origin.");
-      this.can_flow_from_vertex_into_cone = can_flow_from_vertex_into_cone;
-      this.can_flow_from_cone_to_vertex = can_flow_from_cone_to_vertex;
+      % x     % Compute <Ac*v, n> where \dot x = Ac*x is the system's flow, v is a vertex in the boundary of the cone, and n is the normal vector to the cone.
+      % x     [normal_vectors, bnd_vertex_ndxs] = conical_partition.getConeNormals(adjacent_cone_ndx);
+      % x     normal_at_ray = normal_vectors(:, bnd_vertex_ndxs == i_ray_ndx);
+      % x     % Compute \dot x = Ax for x = ray.
+      % x     flow_at_ray = flow_map_matrix * ray; 
+      % x     pwintz.assertions.assertSize(normal_at_ray, [2, 1]);
+      % x 
+      % x     % Sanity check.
+      % x     assert(abs(dot(normal_at_ray, ray)) < 1e-6, 'The normal and vector must be orthogonal.');
+      
+          % % If <Ac*v, n> >= 0, then it is possible to flow into the cone from v.
+          % if dot(normal_at_ray, flow_at_ray) >= 0
+          %   can_flow_from_ray_into_cone(i_ray_ndx, adjacent_cone_ndx) = true;
+          %   % We use a (min/max) gain of 1.0 when flowing from a vertex to a cone because the distance flowed to reach the cone is zero.  
+          %   this.addEdgeFromVertexToCone(i_ray_ndx, adjacent_cone_ndx, 1.0, 1.0);
+          % else
+          %   can_flow_from_cone_to_ray(adjacent_cone_ndx, i_ray_ndx) = true;
+          %   this.addEdgeFromConeToVertex(adjacent_cone_ndx, i_ray_ndx, 0, 1);
+          % end
+        end % End of "adjacent_cone_ndx" for loop.
+      end % End "i_ray_ndx" for
+      
+      % ╭────────────────────────────────────────────────────────────────╮
+      % │             Direction(s) of flows at each boundary             │
+      % ╰────────────────────────────────────────────────────────────────╯
+      % ! In 3D, we need to determine flow across2D  boundaries instead of vertices, but in 2D the boundaries are vertices.
+%       can_flow_from_bnd_into_cone = zeros(conical_partition.n_boundaries, conical_partition.n_cones);
+%       can_flow_from_cone_into_bnd = zeros(conical_partition.n_cones, conical_partition.n_boundaries);
+%       for i_bnd_ndx = conical_partition.boundary_indices
+%         [bnd, adjacent_cone_ndxs, ray_indices] = conical_partition.getBoundary(i_bnd_ndx);
+% 
+%         can_flow_from_ray_into_cone(i_ray_ndx, adjacent_cone_ndx) = true;
+%         can_flow_from_cone_to_ray(i_ray_ndx, adjacent_cone_ndx) = true;
+% 
+%         can_flow_from_bnd_into_cone(i_bnd_ndx)
+%         can_flow_from_cone_into_bnd(i_bnd_ndx)
+% 
+%         rays = bnd.rays;
+%         for ray = rays 
+% 
+%         end
+%       end
+      
+      % can_flow_from_ray_into_cone
+      % can_flow_from_ray_into_cone(conical_partition.origin_index, :)
+      % assert(all(~can_flow_from_ray_into_cone(conical_partition.origin_index, :)), "No cones can be reached from the origin.");
+      this.can_flow_from_ray_into_cone = can_flow_from_ray_into_cone;
+      this.can_flow_from_cone_to_ray   = can_flow_from_cone_to_ray;
       
       % ╭──────────────────────────────────────────────────────────────────╮
       % │             Intra-cone Reachability from Unit Sphere             │
       % ╰──────────────────────────────────────────────────────────────────╯
       % Compute the region in each cone C_i that can be reached by a solution to \dot x = A_c * C_i that starts in unit sphere is always in C_i.
-      restricted_reachable_sets_from_unit_sphere_in_cone = ConvexPolyhedron.arrayOfEmpty(conical_partition.n_cones, 1);
+      restricted_reachable_sets_from_unit_sphere_in_cone = cell(conical_partition.n_cones, 1);
       for cone_ndx = this.flow_set_cone_ndxs
         sphere_overapproximation = conical_partition.getUnitSphereOverApproximationInCone(cone_ndx);
         [restricted_reachable_set, ~] = this.computeReachableSet(cone_ndx, sphere_overapproximation);
-        restricted_reachable_sets_from_unit_sphere_in_cone(cone_ndx) = restricted_reachable_set;
+        assert(~isempty(restricted_reachable_set))
+        restricted_reachable_sets_from_unit_sphere_in_cone{cone_ndx} = restricted_reachable_set;
       end
       this.restricted_reachable_sets_from_unit_sphere_in_cone = restricted_reachable_sets_from_unit_sphere_in_cone;
       
       % ╭────────────────────────────────────────────────────────────────────────────────────────────╮
       % │             Contstruct Flow Graph for Intra-cone Reachability between Vertices             │
       % ╰────────────────────────────────────────────────────────────────────────────────────────────╯
-      directly_reachable_sets_from_vertex_through_cone = ConvexPolyhedron.arrayOfEmpty(conical_partition.n_vertices, conical_partition.n_cones);
+      directly_reachable_sets_from_ray_through_cone = cell(conical_partition.n_rays, conical_partition.n_cones);
+      % directly_reachable_sets_from_ray_through_cone = ConvexPolyhedron.arrayOfEmpty(conical_partition.n_vertices, conical_partition.n_cones);
       
-      for vertex_ndx = conical_partition.nonorigin_vertex_indices
-        cone_ndx = find(this.can_flow_from_vertex_into_cone(vertex_ndx, :));
+      for ray_ndx = conical_partition.ray_indices
+        cone_ndx = find(this.can_flow_from_ray_into_cone(ray_ndx, :));
         if isempty(cone_ndx)
           continue
         end
-        assert(isscalar(cone_ndx), "Is it possible that a flow only points in from one vertex? Guess we'll see! cone_ndx=%s", mat2str(cone_ndx))
+        % assert(isscalar(cone_ndx), "Is it possible that a flow only points in from one vertex? Guess we'll see! cone_ndx=%s", mat2str(cone_ndx))
 
-        vertex = conical_partition.getVertex(vertex_ndx);
-        reach_set = this.computeReachableSet(cone_ndx, vertex);
-        if isempty(reach_set)
-          warning('The reach set from from vertex_ndx=%d in cone_ndx=%d is empty: %s', vertex_ndx, cone_ndx, reach_set);
-        end
-        directly_reachable_sets_from_vertex_through_cone(vertex_ndx, cone_ndx) = reach_set;
-      
-        reach_set_vertices = reach_set.vertices;
-        initial_vertex_ndx_in_reach_set_vertices = pwintz.arrays.findColumnIn(vertex, reach_set_vertices, tolerance=1e-3, verbose=false);
-
-        % ⋘──────── Get the reachable set vertices excluding the initial vertex ────────⋙
+        ray    = conical_partition.getRay(ray_ndx);
         
-        reach_set_vertices = reach_set_vertices(:, setdiff(1:end, initial_vertex_ndx_in_reach_set_vertices));
+        reach_set = this.computeReachableSet(cone_ndx, Polytope.fromPoint(ray));
+        if isempty(reach_set)
+          error('The reach set from from ray_ndx=%d in cone_ndx=%d is empty: %s', ray_ndx, cone_ndx, reach_set);
+        end
+        directly_reachable_sets_from_ray_through_cone{ray_ndx, cone_ndx} = reach_set;
       
-        vertex_norms = vecnorm(reach_set_vertices); % Used to compute gains.
+
+        assert(reach_set.isBounded(), "Reachable set is unbounded.");
+        reach_set_vertices = reach_set.vertices;
+        initial_ray_ndx_in_reach_set_vertices = pwintz.arrays.findColumnIn(ray, reach_set_vertices, tolerance=1e-3, verbose=false);
+
+        % ⋘──────── Get the reachable set vertices excluding the initial ray ────────⋙
+        
+        reach_set_vertices = reach_set_vertices(:, setdiff(1:end, initial_ray_ndx_in_reach_set_vertices));
+      
+        ray_norms = vecnorm(reach_set_vertices); % Used to compute gains.
         normalized_reach_set_vertices = nrv(reach_set_vertices);
         for bnd_vertex_ndx = conical_partition.getVerticesAdjacentToCone(cone_ndx)
           bnd_vertex = conical_partition.getVertex(bnd_vertex_ndx);
@@ -107,17 +144,19 @@ classdef FlowTransitionGainDigraph < TransitionGainDigraph
           col_ndxs = pwintz.arrays.findColumnIn(bnd_vertex, normalized_reach_set_vertices, tolerance=1e-5, verbose=false);
 
           if ~isempty(col_ndxs)
-            gains = vertex_norms(col_ndxs);
+            gains = ray_norms(col_ndxs);
             max_gain = max(gains);
             min_gain = min(gains);
             % Add transition from the non-origin "vertex_ndx" to the adjacent vertex "bnd_vertex_ndx" that can be reached by a single interval of flow.
-            this.addEdgeFromVertexToVertex(vertex_ndx, bnd_vertex_ndx, min_gain, max_gain);
+            this.addEdgeFromVertexToVertex(ray_ndx, bnd_vertex_ndx, min_gain, max_gain);
           end
         end
         % this.flow_graph = flow_graph;
       
       end % End for loop
-      this.directly_reachable_sets_from_vertex_through_cone = directly_reachable_sets_from_vertex_through_cone;
+      this.directly_reachable_sets_from_ray_through_cone = directly_reachable_sets_from_ray_through_cone;
+
+      assert(~isempty(directly_reachable_sets_from_ray_through_cone));
 
     end % End of constructor
 
@@ -129,10 +168,11 @@ classdef FlowTransitionGainDigraph < TransitionGainDigraph
       % The "derivative cone" is represented using vertices on the unit sphere, so we scale it up so that we get a set the sufficiently represents "P0 + A*C_i", at least up to a large radius.
       C_i  = this.conical_partition.getCone(cone_ndx);
       AC_i = this.flow_map_matrix * C_i;
-
+      
       % !! This code is not robust. We are using convex polytopes to represent the cones and just scaling them to make them hopefully "sufficiently close to infinite", but when we make the number large, the intersection calculations break down for numerical reasons.
-      reachable_set         = P0 + 1e4*AC_i;
-      reachable_set_in_cone = intersection(reachable_set, 1e4*C_i);
+      
+      reachable_set         = P0 + AC_i;
+      reachable_set_in_cone = intersection(reachable_set, C_i);
     end
 
     function transition_graph = contractEdgesToBetweenCones(this, start_cone_ndxs, end_cone_ndxs)
@@ -163,9 +203,6 @@ classdef FlowTransitionGainDigraph < TransitionGainDigraph
       start_cone_ndxs = intersect(start_cone_ndxs, this.flow_set_cone_ndxs);
       end_cone_ndxs   = intersect(end_cone_ndxs,   this.flow_set_cone_ndxs);
 
-      start_cone_node_ndxs = this.node_ndxs_of_cones(start_cone_ndxs);
-      end_cone_node_ndxs   = this.node_ndxs_of_cones(end_cone_ndxs);
-
       % Check that the cone indices are OK.
       pwintz.assertions.assertAllAreMembers(start_cone_ndxs, this.conical_partition.cone_indices);
       pwintz.assertions.assertAllAreMembers(end_cone_ndxs,   this.conical_partition.cone_indices);
@@ -176,7 +213,7 @@ classdef FlowTransitionGainDigraph < TransitionGainDigraph
 
 
       edges_not_from_verts_to_verts = [this.getEdgesFromConesToVertices(); this.getEdgesFromVerticesToCones()];
-      vertex_subgraph = digraph(edges_from_verts_to_verts, this.gains_digraph.Nodes);
+      faces_subgraph = digraph(edges_not_from_verts_to_verts, this.gains_digraph.Nodes);
       
       % % We will also use edges from vertices to cones...
       % edges_from_verts_to_cones = this.getEdgesFromVerticesToCones();
@@ -188,7 +225,10 @@ classdef FlowTransitionGainDigraph < TransitionGainDigraph
       vertices_adjacent_to_end_cones   = this.conical_partition.getVerticesAdjacentToCone(end_cone_ndxs);
 
       for start_vertex_ndx = vertices_adjacent_to_start_cones
+        start_node_ndx = this.node_ndxs_of_vertices(start_vertex_ndx);
         for end_vertex_ndx = vertices_adjacent_to_end_cones
+          end_node_ndx = this.node_ndxs_of_vertices(end_vertex_ndx);
+          
           % fprintf('Finding all paths from vertex %3d to vertex %3d.\n', start_vertex_ndx, end_vertex_ndx);
           % !! Previously we skipped cases where the vertices are equal, but this actually an important case, since we want to include paths like 
           % `   [cone] -> [vertex] -> [cone]
@@ -196,17 +236,16 @@ classdef FlowTransitionGainDigraph < TransitionGainDigraph
           [paths_nodes, paths_edges] = vertex_subgraph.allpaths(start_vertex_ndx, end_vertex_ndx);
           if isempty(paths_nodes)
             % No paths found.
+            fprintf('Did not find any paths from vertex %3d (node %d) to vertex %3d (node %d).\n', start_vertex_ndx, start_node_ndx, end_vertex_ndx, end_node_ndx);
             pwintz.assertions.assertNotEqual(start_vertex_ndx, end_vertex_ndx);
             continue
           end
 
-          assert(isvector(paths_nodes), "Expected paths_nodes to be 1-dimensional. Instead its size was %s.", mat2str(size(paths_nodes)));
-          for i_path = 1:numel(paths_nodes)
+          for i_path = pwintz.arrays.cellVectorIndices(paths_nodes)
+          % for i_path = 1:numel(paths_nodes)
             path_nodes = paths_nodes{i_path};
             path_edges = paths_edges{i_path};
             
-            start_node_ndx = this.node_ndxs_of_vertices(start_vertex_ndx);
-            end_node_ndx = this.node_ndxs_of_vertices(end_vertex_ndx);
             assert(path_nodes(1)   == start_node_ndx, 'path_nodes=%s must start at start_node_ndx=%d', mat2str(path_nodes), start_node_ndx);
             assert(path_nodes(end) == end_node_ndx, 'path_nodes=%s must end at end_node_ndx=%d', mat2str(path_nodes), end_node_ndx);
             % fprintf('Found path for start_cone_ndx=%d, end_cone_ndx=%d, start_vertex_ndx=%d, end_vertex_ndx=%d, i_path=%d\n', start_cone_ndx, end_cone_ndx, start_vertex_ndx, end_vertex_ndx, i_path);

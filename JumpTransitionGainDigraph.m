@@ -14,18 +14,31 @@ classdef JumpTransitionGainDigraph < TransitionGainDigraph
       this.jump_set_cone_ndxs = jump_set_cone_ndxs;
       this.jump_set_image_cone_ndxs = jump_set_image_cone_ndxs;
       this.jump_map_matrix    = jump_map_matrix;
+      assert(cond(this.jump_map_matrix) < 1e9, "Jump map must be invertible.");
 
       % ⋘──────── Alternative: If jump map is invertible ────────⋙
-      assert(cond(this.jump_map_matrix) < 1e9, "Jump map must be invertible.");
+      for jump_set_cone_ndx = this.jump_set_cone_ndxs
+        cone = conical_partition.getCone(jump_set_cone_ndx);
+        image_cone = this.jump_map_matrix * cone;
+        mean_of_cone = mean(image_cone.rays, 2);
+        image_ndx = conical_partition.getConesContainingPoint(mean_of_cone);
+        % origin_ndxs = pwintz.arrays.findColumnIn([0; 0], preimage_cone.rays, tolerance=1e-6);
+        % preimage_nonzero_rays = preimage_cone.rays(:, setdiff(1:end, origin_ndxs));
+        w_min = min(vecnorm(image_cone.rays));
+        w_max = max(vecnorm(image_cone.rays));
+        this.addEdgeFromConeToCone(jump_set_cone_ndx, image_ndx, w_min, w_max);
+      end % End of for block
+
+      % ⋘──────── Alternative: If jump map is invertible ────────⋙
       Ad_invs = inv(this.jump_map_matrix);
       for jump_set_image_cone_ndx = this.jump_set_image_cone_ndxs
         preimage_cone = Ad_invs * conical_partition.getCone(jump_set_image_cone_ndx);
-        mean_of_preimage_cone = mean(preimage_cone.vertices, 2);
+        mean_of_preimage_cone = mean(preimage_cone.rays, 2);
         preimage_ndx = conical_partition.getConesContainingPoint(mean_of_preimage_cone);
-        origin_ndxs = pwintz.arrays.findColumnIn([0; 0], preimage_cone.vertices, tolerance=1e-6);
-        preimage_nonzero_vertices = preimage_cone.vertices(:, setdiff(1:end, origin_ndxs));
-        w_min = min(1./vecnorm(preimage_nonzero_vertices));
-        w_max = max(1./vecnorm(preimage_nonzero_vertices));
+        origin_ndxs = pwintz.arrays.findColumnIn([0; 0], preimage_cone.rays, tolerance=1e-6);
+        preimage_nonzero_rays = preimage_cone.rays(:, setdiff(1:end, origin_ndxs));
+        w_min = min(1./vecnorm(preimage_nonzero_rays));
+        w_max = max(1./vecnorm(preimage_nonzero_rays));
         this.addEdgeFromConeToCone(preimage_ndx, jump_set_image_cone_ndx, w_min, w_max);
       end % End of for block
 
@@ -35,10 +48,10 @@ classdef JumpTransitionGainDigraph < TransitionGainDigraph
       %         jump_cone_ndx
       %         jump_cone = conical_partition.getCone(jump_cone_ndx);
       %         jump_image_cone = this.jump_map_matrix * jump_cone;
-      %         normalized_jump_image_vertices = nrv(jump_image_cone.vertices);
-      %         jump_image_cone_normalized = ConvexPolyhedron.fromConvexHull(normalized_jump_image_vertices);
-      %         nonzero_vertices = jump_image_cone_normalized.removeVertex([0; 0]).vertices;
-      %         jump_image_angles = mod(pwintz.math.atan2(nonzero_vertices), 2*pi);
+      %         normalized_jump_image_rays = nrv(jump_image_cone.rays);
+      %         jump_image_cone_normalized = ConvexPolyhedron.fromConvexHull(normalized_jump_image_rays);
+      %         nonzero_rays = jump_image_cone_normalized.removeVertex([0; 0]).rays;
+      %         jump_image_angles = mod(pwintz.math.atan2(nonzero_rays), 2*pi);
       %         if pwintz.math.angleDiffCCW(jump_image_angles, index=1) <= pi
       %           start_angle = jump_image_angles(1);
       %           end_angle = jump_image_angles(2);
@@ -49,8 +62,8 @@ classdef JumpTransitionGainDigraph < TransitionGainDigraph
       %         [intersecting_cone_ndxs, arc] = conical_partition.getConesIntersectingArc(start_angle, end_angle);
       % 
       %         % ! This is a overly conservative estimate of the max and min norm of the cone mapped by 
-      %         w_min = min(vecnorm(jump_image_cone.vertices));
-      %         w_max = max(vecnorm(jump_image_cone.vertices));
+      %         w_min = min(vecnorm(jump_image_cone.rays));
+      %         w_max = max(vecnorm(jump_image_cone.rays));
       %         for jump_set_image_cone_ndx = intersecting_cone_ndxs
       %           jump_set_image_cone_ndx
       %           jump_transition_graph.addEdgeFromConeToCone(jump_cone_ndx, jump_set_image_cone_ndx, w_min, w_max);
