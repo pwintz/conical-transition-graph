@@ -28,7 +28,7 @@ classdef ConicAbstraction < handle
     reachable_sets_from_unit_sphere_in_cone             (1, :) cell; % Contains ConvexPolyhedrons.  
     directly_reachable_sets_from_vertices               (:, :) cell; % Contains ConvexPolyhedrons.
 
-    flow_transition_graph            FlowTransitionGainDigraph;
+    flow_transition_graphs (1, :) FlowTransitionGainDigraph;
     jump_transition_graph            TransitionGainDigraph;
     contracted_flow_transition_graph TransitionGainDigraph;
     ctg                              TransitionGainDigraph;
@@ -131,10 +131,9 @@ classdef ConicAbstraction < handle
         conic_abstraction ConicAbstraction;
       end % End of Output arguments block
 
-      
-      options.flowSetAngles
-      options.jumpSetAngles
-      options_cell = namedargs2cell(options);
+      % options.flowSetAngles;
+      % options.jumpSetAngles;
+      % options_cell = namedargs2cell(options);
 
       state_cone_angles = generateConeAngles2D(...
         flowSetStartAngle      = options.flowSetAngles(1),  ...
@@ -151,6 +150,8 @@ classdef ConicAbstraction < handle
       
       % Find the ConicalPartition cones that partition the flow set, jump set, and image of the jump set.
       
+      jump_set_image_angles = mapAnglesByLinearMap(options.jumpMapMatrix, options.jumpSetAngles);
+
       pwintz.strings.format("ConicAbstraction: Finding cone indices for C.");
       flow_set_cone_ndxs       = conical_partition.getConesIntersectingArc(options.flowSetAngles(1), options.flowSetAngles(2));
       pwintz.strings.format("ConicAbstraction: Finding cone indices for D.");
@@ -159,9 +160,8 @@ classdef ConicAbstraction < handle
       jump_set_image_cone_ndxs = conical_partition.getConesIntersectingArc(jump_set_image_angles(1), jump_set_image_angles(2));
       pwintz.strings.format("ConicAbstraction: Finished finding cone indices for C, D, and G(D).");
       
-      
       % Create the conical abstraction.
-      conic_abstraction = ConicAbstraction(conical_partition, flow_set_cone_ndxs, jump_set_cone_ndxs, jump_set_image_cone_ndxs, A_c, A_d);
+      conic_abstraction = ConicAbstraction(conical_partition, flow_set_cone_ndxs, jump_set_cone_ndxs, jump_set_image_cone_ndxs, options.flowMapMatrix, options.jumpMapMatrix);
 
     end % End of function
   end % End static methods block
@@ -173,76 +173,129 @@ classdef ConicAbstraction < handle
     % │ │             Constructor             │ │
     % │ ╰─────────────────────────────────────╯ │
     % ╰─────────────────────────────────────────╯
-    function this = ConicAbstraction(conical_partition, flow_set_cone_ndxs, jump_set_cone_ndxs, jump_set_image_cone_ndxs, flow_map_matrix, jump_map_matrix)
-      % Function signature should be like: myFunction(<positional arguments>, options)
+    function this = ConicAbstraction(...
+        conical_partitions, ...
+        flow_specifications, ...
+        jump_specifications... 
+      )
       arguments
-        conical_partition ConicalPartition;
-        flow_set_cone_ndxs       (1, :) double;
-        jump_set_cone_ndxs       (1, :) double;
-        jump_set_image_cone_ndxs (1, :) double;
-
-        % Linear maps Ac and Ad that define \dot x = Ax * x and x^+ = A_d * x.
-        flow_map_matrix          (:, :) double;
-        jump_map_matrix          (:, :) double;
+        conical_partitions  (1, :) ConicalPartition {mustBeNonempty};
+        flow_specifications (1, :) FlowSpecification {mustBeNonempty};
+        % The entry (i,j) specifies a jump from mode i to mode j. (This does not match matrix multiplication, where each each column corresponds to an input component and each row correspondes to an output componenet, but it seems more natural to read jump_specifications(i, j) as the specification of "jumps from i to j" .)
+        jump_specifications (:, :) JumpSpecification {pwintz.validators.mustBeSquare};
       end
+      %     function this = ConicAbstraction(...
+      %         conical_partitions, ...
+      %         flow_set_cone_ndxs, ...
+      %         jump_set_cone_ndxs, ...
+      %         jump_set_image_cone_ndxs, ...
+      %         flow_map_matrix, ...
+      %         jump_map_matrix  ...
+      %       )
+      %       arguments
+      %         conical_partitions       (1, :) ConicalPartition;
+      %         flow_set_cone_ndxs       (1, :) double;
+      %         jump_set_cone_ndxs       (1, :) double;
+      %         jump_set_image_cone_ndxs (1, :) double;
+      % 
+      %         % Linear maps Ac and Ad that define \dot x = Ax * x and x^+ = A_d * x.
+      %         flow_map_matrix          (:, :) double;
+      %         jump_map_matrix          (:, :) double;
+      %       end
 
-      dimension = conical_partition.dimension;
+      n_modes = numel(conical_partitions);
+      pwintz.assertions.assertSameSize(conical_partitions, flow_specifications);
+      pwintz.assertions.assertSize(jump_specifications, [n_modes, n_modes]);
 
-      pwintz.assertions.assertSize(flow_map_matrix, [dimension, dimension]);
-      pwintz.assertions.assertSize(jump_map_matrix, [dimension, dimension]);
+      % TODO: Check that all of the conical_partitions have the same dimension.
+      % dimension = conical_partitions(1).dimension;
+
+      % pwintz.assertions.assertSize(flow_map_matrix, [dimension, dimension]);
+      % pwintz.assertions.assertSize(jump_map_matrix, [dimension, dimension]);
       
-      this.conical_partition  = conical_partition;
-      this.flow_set_cone_ndxs = flow_set_cone_ndxs;
-      this.jump_set_cone_ndxs = jump_set_cone_ndxs;
-      this.jump_set_image_cone_ndxs = jump_set_image_cone_ndxs;
+%       this.conical_partition  = conical_partition;
+%       this.flow_set_cone_ndxs = flow_set_cone_ndxs;
+%       this.jump_set_cone_ndxs = jump_set_cone_ndxs;
+%       this.jump_set_image_cone_ndxs = jump_set_image_cone_ndxs;
+% 
+%       cone_indices = conical_partition.cone_indices;
+%       this.is_cone_in_flow_set       = ismember(cone_indices, flow_set_cone_ndxs);
+%       this.is_cone_in_jump_set       = ismember(cone_indices, jump_set_cone_ndxs);
+%       this.is_cone_in_jump_set_image = ismember(cone_indices, jump_set_image_cone_ndxs);
+% 
+%       this.n_flow_set_cones       = numel(this.flow_set_cone_ndxs);
+%       this.n_jump_set_cones       = numel(this.jump_set_cone_ndxs);
+%       this.n_jump_set_image_cones = numel(this.jump_set_image_cone_ndxs);
+% 
+%       % ⋘──────── Checks ────────⋙
+%       if ~any(this.is_cone_in_jump_set | this.is_cone_in_flow_set)
+%         warning("The jump set does not intersect the flow set.");
+%       end
+%       
+%       if ~any(this.is_cone_in_jump_set_image | this.is_cone_in_flow_set)
+%         warning("The jump set image does not intersect the flow set.");
+%       end
+% 
+%       % Linear maps Ac and Ad that define \dot x = Ax * x and x^+ = A_d * x.
+%       this.flow_map_matrix = flow_map_matrix;
+%       this.jump_map_matrix = jump_map_matrix;
+% 
+% TODO: Restore checks
+%       % ⋘──────── Check the indices are all valid ────────⋙
+%       % Check that the set of indices for the flow set, jump set, and jump set images are subsets of "conical_partition.cone_indices".
+%       pwintz.assertions.assertAllAreMembers(flow_set_cone_ndxs,       cone_indices);
+%       pwintz.assertions.assertAllAreMembers(jump_set_cone_ndxs,       cone_indices);
+%       pwintz.assertions.assertAllAreMembers(jump_set_image_cone_ndxs, cone_indices);
+%       pwintz.assertions.assertUnique(flow_set_cone_ndxs);
+%       pwintz.assertions.assertUnique(jump_set_cone_ndxs);
+%       pwintz.assertions.assertUnique(jump_set_image_cone_ndxs);
 
-      cone_indices = conical_partition.cone_indices;
-      this.is_cone_in_flow_set       = ismember(cone_indices, flow_set_cone_ndxs);
-      this.is_cone_in_jump_set       = ismember(cone_indices, jump_set_cone_ndxs);
-      this.is_cone_in_jump_set_image = ismember(cone_indices, jump_set_image_cone_ndxs);
+      % ╭────────────────────────────────────────────────────────────────╮
+      % │             Find all jump set indices in each mode             │
+      % ╰────────────────────────────────────────────────────────────────╯
+      pwintz.strings.format("ConicAbstraction: Constructing JumpTransitionGainDigraph.");
+      is_jump_set_ndx = cell(1, n_modes);
+      for start_node_ndx = 1:n_modes
+        start_conical_partition = conical_partition(start_node_ndx);
+        is_jump_set_ndx = false(1, start_conical_partition.n_cones);
 
-      this.n_flow_set_cones       = numel(this.flow_set_cone_ndxs);
-      this.n_jump_set_cones       = numel(this.jump_set_cone_ndxs);
-      this.n_jump_set_image_cones = numel(this.jump_set_image_cone_ndxs);
+        for destination_mode_ndx = 1:n_modes
+          % The jumps out of mode "node_ndex are given in the "node_ndx" row of jump_specifications.
+          jump_spec = jump_specifications(start_node_ndx, destination_mode_ndx);
+          pwintz.assertions.assertAllAreMembers(jump_spec.jump_cone_set_ndxs, conical_partitions.cone_indices);
+          jump_transition_graph = JumpTransitionGainDigraph(conical_partition, this.jump_set_cone_ndxs, this.jump_map_matrix);
 
-      % ⋘──────── Checks ────────⋙
-      if ~any(this.is_cone_in_jump_set | this.is_cone_in_flow_set)
-        warning("The jump set does not intersect the flow set.");
+        end
+
       end
-      
-      if ~any(this.is_cone_in_jump_set_image | this.is_cone_in_flow_set)
-        warning("The jump set image does not intersect the flow set.");
-      end
 
-      % Linear maps Ac and Ad that define \dot x = Ax * x and x^+ = A_d * x.
-      this.flow_map_matrix = flow_map_matrix;
-      this.jump_map_matrix = jump_map_matrix;
-
-      % ⋘──────── Check the indices are all valid ────────⋙
-      % Check that the set of indices for the flow set, jump set, and jump set images are subsets of "conical_partition.cone_indices".
-      pwintz.assertions.assertAllAreMembers(flow_set_cone_ndxs,       cone_indices);
-      pwintz.assertions.assertAllAreMembers(jump_set_cone_ndxs,       cone_indices);
-      pwintz.assertions.assertAllAreMembers(jump_set_image_cone_ndxs, cone_indices);
-      pwintz.assertions.assertUnique(flow_set_cone_ndxs);
-      pwintz.assertions.assertUnique(jump_set_cone_ndxs);
-      pwintz.assertions.assertUnique(jump_set_image_cone_ndxs);
 
       % ╭──────────────────────────────────────────────╮
-      % │             Construct Flow Graph             │
+      % │             Construct Flow Graphs             │
       % ╰──────────────────────────────────────────────╯
       % * To check that the origin is stable for \dot x = A_c*x, x \in C, we need to check the following:
       %   * For each cycle in flow_graph, the weight is <= 1.
       %   * For each flow set cone,  
-      pwintz.strings.format("ConicAbstraction: Constructing FlowTransitionGainDigraph.");
-      this.flow_transition_graph = FlowTransitionGainDigraph(conical_partition, flow_set_cone_ndxs, flow_map_matrix);
 
-      pwintz.strings.format("ConicAbstraction: Contracting Edges in FlowTransitionGainDigraph.");
-      this.contracted_flow_transition_graph = this.flow_transition_graph.contractEdgesToBetweenCones(this.jump_set_image_cone_ndxs, this.jump_set_cone_ndxs);
+
+      pwintz.strings.format("ConicAbstraction: Constructing FlowTransitionGainDigraphs for each mode.");
+      flow_transition_graphs = cell(1, n_modes);
+      for mode_ndx = 1:n_modes
+        % TODO: Add some sanity checks here (does conical_partition match the flow spec? is dimension OK?)
+        flow_spec = flow_specifications(mode_ndx);
+        flow_transition_graphs{mode_ndx} = FlowTransitionGainDigraph(conical_partitions(mode_ndx), flow_spec.flow_set_cone_ndxs, flow_spec.flow_map_matrix);
+
+        pwintz.strings.format("ConicAbstraction: Contracting Edges in FlowTransitionGainDigraph.");
+        this.contracted_flow_transition_graphs{mode_ndx} = flow_transition_graphs{mode_ndx}.contractEdgesToBetweenCones(this.jump_set_image_cone_ndxs, this.jump_set_cone_ndxs);
+      end
+
+      % Assign to property.
+      this.flow_transition_graphs = [flow_transition_graphs{:}];
+
+
+      
       
       % ⋘──────── Construct Jump Graph for Reachability between Cones ────────⋙
-      pwintz.strings.format("ConicAbstraction: Constructing JumpTransitionGainDigraph.");
-      
-      this.jump_transition_graph = JumpTransitionGainDigraph(conical_partition, this.jump_set_cone_ndxs, this.jump_set_image_cone_ndxs, this.jump_map_matrix);
       
       % ⋘──────── Construct Conical Transition Graph ────────⋙
       this.ctg = TransitionGainDigraph.union(this.jump_transition_graph, this.contracted_flow_transition_graph);
@@ -329,12 +382,17 @@ classdef ConicAbstraction < handle
     % │             Reachable Sets             │
     % ╰────────────────────────────────────────╯
     function [reachable_set_in_cone, reachable_set] = computeReachableSet(this, cone_ndx, P0)
-      % Compute the cone that is reachable from P0 when flowing according to \dot x \in A*C_i, where C_i is given cone .
+      % Compute the cone that is reachable from P0 when flowing according to \dot x \in A*C_i in a given cone C_i.
       % The "derivative cone" is represented using vertices on the unit sphere, so we scale it up so that we get a set the sufficiently represents "P0 + A*C_i", at least up to a large radius.
+      error("Deprecated. See FlowTransitionGainDigraph.computeReachableSet");
+
       C_i  = this.conical_partition.getCone(cone_ndx);
       AC_i = this.flow_map_matrix * C_i;
-      reachable_set         = P0 + 1e5*AC_i;
-      reachable_set_in_cone = intersection(reachable_set, 1e5*C_i);
+      reachable_set         = P0 + AC_i;
+
+
+      
+      reachable_set_in_cone = intersection(reachable_set, C_i);
     end
 
     % ╭────────────────────────────────────────╮
@@ -378,16 +436,16 @@ classdef ConicAbstraction < handle
     % ╰─────────────────────────────────────────────────────╯
     
 
-    function reach_set = getReachableSetFromVertex(this, vertex_ndx, min_radius, max_radius, depth)
-      this.flow_transition_graph.get
-      reachable_convex_polyhedrons = {};
-      % if depth = 
-    end
-    
-    function reach_set = getReachableSetFromCone(this, vertex_ndx, depth)
-      reachable_convex_polyhedrons = {};
-      % if depth = 
-    end
+    % function reach_set = getReachableSetFromVertex(this, vertex_ndx, min_radius, max_radius, depth)
+    %   this.flow_transition_graph.get
+    %   reachable_convex_polyhedrons = {};
+    %   % if depth = 
+    % end
+    % 
+    % function reach_set = getReachableSetFromCone(this, vertex_ndx, depth)
+    %   reachable_convex_polyhedrons = {};
+    %   % if depth = 
+    % end
     
     % ╭────────────────────────────────────────╮
     % │  ╭──────────────────────────────────╮  │

@@ -26,6 +26,9 @@ classdef ConicalPartition < handle
     % Number of cones in the partition.
     n_cones        (1, 1);
 
+    % Number vertices in mesh (one for each ray, plus one for the origin.)
+    n_vertices     (1, 1); 
+
     % Index arrays
     vertex_indices     (1, :); % 1:n_vertices
     cone_indices       (1, :); % 1:n_cones 
@@ -39,7 +42,7 @@ classdef ConicalPartition < handle
     % ⋘──────── Vertices and Cones ────────⋙
 
     % Get the vertices without the origin.
-    rays           (:, :) double; 
+    % rays           (:, :) double; 
     
     % The cones cell array contains cone per entry.
     % cones          ConvexPolyhedralCone;
@@ -55,14 +58,9 @@ classdef ConicalPartition < handle
   
   properties(SetAccess = immutable, GetAccess={?matlab.unittest.TestCase}) % Private properties
 
-    
-    % Number vertices in mesh (one for each ray, plus one for the origin.)
-    n_vertices     (1, 1); 
-
-
     % Subsets of vertex_indices
     origin_index       (1, 1);
-    ray_indices_in_vertices (1, :); % vertex_indices without the origin index. 
+    % ray_indices_in_vertices (1, :); % vertex_indices without the origin index. 
     
      
     
@@ -136,7 +134,7 @@ classdef ConicalPartition < handle
       rays = vertices(:, ~is_zero_column);
       rays = pwintz.arrays.normalizeColumns(rays);
       rays = pwintz.arrays.uniqueColumns(rays, tolerance=ConicalPartition.VERTEX_TOL);
-      vertices = [rays, this.origin];
+      vertices = [this.origin, rays];
 
       % ╭────────────────────────────────────────────────╮
       % │             Generate Triangulation             │
@@ -193,8 +191,24 @@ classdef ConicalPartition < handle
         "faces", triang.ConnectivityList ...
       );
 
-      rays        = pwintz.arrays.mapRows(@(pt_ndxs) {triang.Points(pt_ndxs, :)'}, triang.ConnectivityList);
-      hspace_reps = pwintz.arrays.mapRows(@(ray_cell)  HalfspaceRepresentation.fromConicalHull(ray_cell{1}), rays);
+      % For each triangle (2D) or tetrahedron (3D) in the triangulation, get all of the 
+      % connections_wo_origin = triang.ConnectivityList
+      rays_for_each_cone  = pwintz.arrays.mapRows(@(pt_ndxs) {pwintz.arrays.findAndRemoveColumn(this.origin, triang.Points(pt_ndxs, :)')}, triang.ConnectivityList);
+
+      hspace_reps = pwintz.arrays.mapRows(@(ray_cell)  HalfspaceRepresentation.fromConicalHull(ray_cell{1}), rays_for_each_cone);
+
+
+      % triang.Points
+      % triang.Points([1,2, 3], :)'
+      % vertices_for_each_cone    = pwintz.arrays.mapColumns(@(cone_ndx) {transpose(triang.Points(cone_ndx, :))}, triang.ConnectivityList');
+      % vertices = triang.Points'
+      % % cell2mat(vertices)
+      % 
+      % vertices_for_each_cone    = pwintz.arrays.mapColumns(@(cone_ndx) {transpose(triang.Points(cone_ndx, :))}, triang.ConnectivityList');
+      % rays        = pwintz.arrays.findAndRemoveColumn(this.origin, vertices)
+      % hspace_reps = pwintz.arrays.mapRows(@(ray_cell)  HalfspaceRepresentation.fromConicalHull(ray_cell{1}), rays);
+
+
       % hspace_reps = cell(n_cones, 1);
       % for cone_ndx = 1:n_cones
       %   vertex_ndxs = triang.ConnectivityList(cone_ndx, :);
@@ -210,15 +224,15 @@ classdef ConicalPartition < handle
 
       % ⋘──────── Save the origin's index and all of the other indices ────────⋙
       this.origin_index             =  pwintz.arrays.findRowIn(this.origin', triang.Points);
-      ray_indices_in_vertices = setdiff(1:n_vertices, this.origin_index); 
+      this.ray_indices = setdiff(1:n_vertices, this.origin_index); 
       
-      rays = triang.Points(ray_indices_in_vertices, :)';
-      this.ray_indices = 1:n_rays; 
-      this.rays = rays;
-      this.ray_indices_in_vertices = ray_indices_in_vertices;
+      % rays = triang.Points(this., :)';
+      % this.ray_indices = 1:n_rays; 
+      % this.rays = rays;
+      % this.ray_indices_in_vertices = ray_indices_in_vertices;
 
-      % Check that the origin is excluded from the rays.
-      pwintz.assertions.assertNotColumnIn(this.origin, rays, columnName="origin");
+      % % Check that the origin is excluded from the rays.
+      % pwintz.assertions.assertNotColumnIn(this.origin, rays, columnName="origin");
 
       % ╭────────────────────────────────────────────────╮
       % │             Construct Vertex Table             │
@@ -374,7 +388,7 @@ classdef ConicalPartition < handle
       % We want the vertices and points in the triangulation to have the same order.
       pwintz.assertions.assertEqual(this.triangulation.Points', this.vertices);
 
-      pwintz.assertions.assertSize(this.rays, [this.dimension, this.n_rays]);
+      % pwintz.assertions.assertSize(this.rays, [this.dimension, this.n_rays]);
       pwintz.assertions.assertSize(this.vertices, [this.dimension, this.n_vertices]);
       % pwintz.assertions.assertSize(this., [this.dimension, this.n_rays]);
 
@@ -450,8 +464,10 @@ classdef ConicalPartition < handle
     end % End of function
 
     function ray = getRay(this, ray_index)
-      assert(all(ray_index <= this.n_rays), "ray_index=%s must not be more than n_rays=%d", mat2str(ray_index), this.n_rays)
-      ray = this.rays(:, ray_index);
+      pwintz.assertions.assertAllAreMembers(ray_index, this.ray_indices);
+
+      % assert(all(ray_index <= this.n_rays), "ray_index=%s must not be more than n_rays=%d", mat2str(ray_index), this.n_rays)
+      ray = this.vertices(:, ray_index);
     end % End of function
     
     function cone = getCone(this, index)
@@ -486,7 +502,7 @@ classdef ConicalPartition < handle
     function adjacent_vertex_ndxs = getVerticesAdjacentToVertex(this, v_ndx)
       arguments(Input)
         this; 
-        v_ndx (:, 1) double {pwintz.validators.mustBeIndexVector};
+        v_ndx (:, 1) {pwintz.validators.mustBeIndexVector};
       end % End of Input arguments block
       arguments(Output)
         adjacent_vertex_ndxs (1, :) double {pwintz.validators.mustBeIndexVector};
@@ -510,9 +526,10 @@ classdef ConicalPartition < handle
         adjacent_cone_ndxs (1, :) double {pwintz.validators.mustBeIndexVector};
       end % End of Output arguments block
 
-      assert(ismember(ray_ndx, this.ray_indices), "The index %d is not a ray index (meaning it is th origin).")
+      pwintz.assertions.assertAllAreMembers(ray_ndx, this.ray_indices); %, "The index %d is not a ray index (meaning it is th origin).")
 
-      vertex_ndx = this.ray_indices_in_vertices(ray_ndx);
+      vertex_ndx = ray_ndx;
+      % vertex_ndx = this.ray_indices_in_vertices(ray_ndx);
       adjacent_cone_ndxs = this.getConesAdjacentToVertex(vertex_ndx);
 
       assert(numel(adjacent_cone_ndxs) ~= this.n_cones, "Too many cones were returned (%d). It seems that this ray '%s' is actually the origin.", numel(adjacent_cone_ndxs), mat2str(this.getVertex(vertex_ndx)));
@@ -578,7 +595,7 @@ classdef ConicalPartition < handle
     function [adjacent_vertex_ndxs, adjacent_vertices] = getVerticesAdjacentToCone(this, cone_ndx, options)
       arguments(Input)
         this;
-        cone_ndx (:, 1) {mustBeInteger,mustBePositive};
+        cone_ndx (:, 1) {pwintz.validators.mustBeIndexVector};
         options.includeOrigin logical = false;
       end % End of Input arguments block
       arguments(Output)
@@ -642,6 +659,10 @@ classdef ConicalPartition < handle
       % Given start and end angles, this function construct an arc from the start angle to the end angle in the counter-clockwise direction. The angle swept by this arc must be less than or equal to pi. 
       % This function returns all of the cone indices that the arc intersects non-trivially. 
       % The angles are shifted slightly toward the center of the arc to introduce a small numerical margin.
+      arguments(Output)
+        intersecting_cone_ndxs (1, :) {pwintz.validators.mustBeIndexVector};
+      end % End of Output arguments block
+      
       
       assert(this.dimension == 2, "This function only works in 2D.");
       assert(isscalar(start_angle), ...
@@ -653,21 +674,21 @@ classdef ConicalPartition < handle
         
       start_angle = mod(start_angle, 2*pi);
       end_angle   = mod(end_angle, 2*pi);
-      % assert(0 <= start_angle, "Must have 0 <= start_angle");
-      % assert(0 <= start_angle, "Must have start_angle < 2*pi");
-      % assert(0 <= end_angle, "Must have 0 <= end_angle");
+      % assert(0 <= start_angle,  "Must have 0 <= start_angle");
+      % assert(0 <= start_angle,  "Must have start_angle < 2*pi");
+      % assert(0 <= end_angle,    "Must have 0 <= end_angle");
       % assert(end_angle <= 2*pi, "Must have end_angle <= 2*pi");
 
       % disp("");
       % pwintz.strings.format("=== getConesIntersectingArc(start_angle=%.2f, end_angle=%.2f) ===", start_angle, end_angle)
-      ray_angles = pwintz.math.atan2(this.rays);
+      ray_angles = pwintz.math.atan2(this.vertices(:, this.ray_indices));
       ray_angles = mod(ray_angles, 2*pi);
       ray_angles = sort(ray_angles);
       
       cone_midpoint_angles = ray_angles + pwintz.math.angleDiffCCW(ray_angles)/2;
 
       % Find the last ray that has an angle <= the start angle
-      pwintz.strings.format("ray_angles: %.4g", ray_angles)
+      % pwintz.strings.format("ray_angles: %5.2f", ray_angles);
       last_ray_not_after_start_angle = find(ray_angles <= start_angle, 1, "last");
       first_ray_not_before_end_angle = find(ray_angles >= end_angle, 1, "first");
       if isempty(first_ray_not_before_end_angle)
@@ -954,14 +975,32 @@ classdef ConicalPartition < handle
     %   fprintf('%s\n', this);
     % end % End of function
 
-    function plot(this, varargin)
+    function plot(this, plot_args, options)
+
+      arguments(Input)
+        this;
+
+      end % End of Input arguments block
+
+      arguments(Input, Repeating)
+        plot_args;
+      end % End of Input arguments block
+
+      arguments(Input)
+        options.offset = [];
+      end % End of Input arguments block
+
+      if isempty(options.offset)
+        options.offset = this.origin;
+      end
+
       colors = {0.5*[1 1 1]}; % Gray.
       switch this.dimension
         case 2
           for cone_ndx = this.cone_indices
-            cone = this.getCone(cone_ndx);
+            % cone = this.getCone(cone_ndx);
             color = colors{mod(cone_ndx, numel(colors)) + 1}; 
-            this.plotCone(cone_ndx, "FaceColor", color, "FaceAlpha", 0.2);
+            this.plotCone(cone_ndx, "FaceColor", color, "FaceAlpha", 0.2, plot_args{:}, offset=options.offset);
           end
         case 3
           tetramesh(this.triangulation, 'FaceAlpha', 0.2);
@@ -979,20 +1018,41 @@ classdef ConicalPartition < handle
       % pwintz.plots.plotVector2(0.5*i_vertex, 0.1*normal_at_i_vertex, plotArgs={"Color", [0.4, 0.0, 0.7], "HandleVisibility", "off"});
     end % End of function
 
-    function plotCone(this, cone_ndx, varargin)
+    function plotCone(this, cone_ndx, plot_args, options)
+
+      arguments(Input)
+        this;
+        cone_ndx;
+      end % End of Input arguments block
+
+      arguments(Input, Repeating)
+        plot_args;
+      end % End of Input arguments block
+
+      arguments(Input)
+        options.offset = [];
+      end % End of Input arguments block
+
+      if isempty(options.offset)
+        options.offset = this.origin;
+      end
+
+      shared_plot_args = {'FaceAlpha', 0.2, "EdgeColor", "black", "EdgeAlpha", 0.5, "displayName", sprintf("Cone %d", cone_ndx), plot_args{:}}; %#ok<CCAT>
+
       switch this.dimension
         case 2
           T = this.triangulation.ConnectivityList(cone_ndx, :);
-          x = this.triangulation.Points(:, 1);
-          y = this.triangulation.Points(:, 2);
+          points = this.triangulation.Points' + options.offset;
+          x = points(1, :);
+          y = points(2, :);
           z = 0*x;
           % The "triplot" function draws outlines of triangulation in 2D, but doesn't seem to allow filling the curves, and also has different options than "tetramesh", which makes it annoying to handle both, so we don't use it.
           % x triplot(T, x, y, "displayName", sprintf("Cone %d", cone_ndx));
 
           % Instead, "trimesh" draws filled triangles for triangulation, but only works for 3D meshes, so we add third component z=0.
-          trimesh(T, x, y, z, "EdgeColor", "black", "displayName", sprintf("Cone %d", cone_ndx), varargin{:});
+          trimesh(T, x, y, z, shared_plot_args{:});
         case 3
-          tetramesh(this.triangulation.ConnectivityList(cone_ndx, :), this.triangulation.Points, 'FaceAlpha', 0.2, "displayName", sprintf("Cone %d", cone_ndx), varargin{:});
+          tetramesh(this.triangulation.ConnectivityList(cone_ndx, :), this.triangulation.Points, shared_plot_args{:});
         otherwise
           error("Unexpected case: %s.", this.dimension);
       end

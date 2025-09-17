@@ -12,7 +12,13 @@ classdef ConvexPolyhedralCone < ConvexPolyhedron
 		% middle_vector (:, :) double {};
 		rays (:, :) double; % Array of rays, given as columns that define the cone.
 		n_rays (1, 1) {mustBeInteger,mustBeNonnegative};
+
+		% vertex (:, 1) double; % Vertex of the cone.  
 	end
+
+	properties(SetAccess = immutable, GetAccess = private) % Define private variables.
+		origin (:, 1) double; % Keep private as it is likely to be confused with "vertex" if we implement cones not centered at the origin.
+	end % End of private properties block
 
 	methods(Static)
 		function cone = fromRays(rays)
@@ -32,6 +38,7 @@ classdef ConvexPolyhedralCone < ConvexPolyhedron
 				% Spanning vectors as an array, with each vector a column.
 				halfspace_representation (1, 1) HalfspaceRepresentation {mustBeNonempty} = HalfspaceRepresentation(); 
 				rays (:, :) double = [];
+				% vertex double = [];
 			end % End of Input arguments block
 			this = this@ConvexPolyhedron(halfspace_representation);
 
@@ -40,11 +47,16 @@ classdef ConvexPolyhedralCone < ConvexPolyhedron
 			% origin = zeros(this.dimension, 1);
 
 			origin = zeros(this.dimension, 1);
+			this.origin = origin;
 			assert(~pwintz.arrays.isColumnIn(origin, rays, tolerance=1e-9), "The origin should not be in the list of rays.");
 			% origin_ndx = pwintz.arrays.findColumnIn(origin, rays, tolerance=1e-10);
 			% n_rays = size(rays, 2);
 			% rays = rays(:, setdiff(1:n_rays, origin_ndx));
 			% assert(isempty(origin_ndx))
+
+			% if isempty(vertex)
+			% 	vertex = origin;
+			% end
 
 			if isempty(rays)
 				% disp("Constructing rays using halfspace halfspace_representation.getConeRays()");
@@ -52,6 +64,7 @@ classdef ConvexPolyhedralCone < ConvexPolyhedron
 			end
 			this.n_rays = size(rays, 2);
 			this.rays = pwintz.arrays.normalizeColumns(rays);
+			% this.vertex = vertex;
 
 			% TODO: Check that the given rays match the given halfspace representation.
 
@@ -132,15 +145,13 @@ classdef ConvexPolyhedralCone < ConvexPolyhedron
 				polytope  %(1, 1)  {pwintz.validators.mustBeScalar}; % Polytope
 			end % End of Input arguments block
 			
-			
-			pwintz.strings.format("ConvexPolyhedralCone.minkowskiSum(this=%spolytope=%s)", this, polytope);
+			% pwintz.strings.format("ConvexPolyhedralCone.minkowskiSum(this=%spolytope=%s)", this, polytope);
 
 			% disp("Using ConvexPolyhedralCone/minkowskiSum");
 			% ! We do a simple and inefficient implementation of the Minkowski sum here. 
 			% ! It should be fine for small numbers of points, but the complexity is O(m*n) (or worse) instead of O(m + n), where m and n are the numbers of rays in each polygon.
 			if class(polytope) ~= "Polytope"
-				msg = pwintz.strings.format("Only implemented for sum of a polytope and a convex polyhedral cone. The polytope argument=%s was instead a %s.", polytope, class(polytope));
-				error(msg);
+				pwintz.error("Only implemented for sum of a polytope and a convex polyhedral cone. The polytope argument=%s was instead a %s.", polytope, class(polytope));
 			end
 			pwintz.assertions.assertEqual(this.dimension, polytope.dimension, leftName="Cone dimension (left argument)", rightName="Polytope dimension (right argument)");
 
@@ -219,6 +230,15 @@ classdef ConvexPolyhedralCone < ConvexPolyhedron
 			result = ConvexPolyhedralCone.fromRays(transformed_rays);
 		end
 
+		function poly = asPolytope(this, radius)
+			arguments(Input)
+				this;
+				radius double = 10.0;
+			end % End of Input arguments block
+			
+			poly = Polytope.fromConvexHull([this.origin, radius*this.rays]);
+		end % End of function
+
 		% ╭─────────────────────────────────────────────────────────────╮
 		% │             Override intersection for two cones             │
 		% ╰─────────────────────────────────────────────────────────────╯
@@ -226,21 +246,37 @@ classdef ConvexPolyhedralCone < ConvexPolyhedron
 			% The intersection of two cones is also a cone, so we 
 			if isa(other, "ConvexPolyhedralCone")
 
-				%this_hs  = this.halfspace_representation;
-				%other_hs = other.halfspace_representation;
-				%this_rays  = this.rays;
-				%other_rays = other.rays;
-				%% is_this_rays_in_other = this.halfspace_representation.containsPoint
-				%is_other_rays_in_this = this_hs.containsPoints(other_rays);
-				%is_this_rays_in_other = other_hs.containsPoints(this_rays);
-				%this_rays_in_other = this_rays(:, is_this_rays_in_other);
-				%other_rays_in_this = other_rays(:, is_other_rays_in_this);
-				%combined_rays = [this_rays(:, is_this_rays_in_other), other_rays(:, is_other_rays_in_this)];
+				% this_hs  = this.halfspace_representation;
+				% other_hs = other.halfspace_representation;
+				% this_rays  = this.rays;
+				% other_rays = other.rays;
+				% % is_this_rays_in_other = this.halfspace_representation.containsPoint
+				% is_other_rays_in_this = this_hs.containsPoints(other_rays);
+				% is_this_rays_in_other = other_hs.containsPoints(this_rays);
+				% this_rays_in_other = this_rays(:, is_this_rays_in_other);
+				% other_rays_in_this = other_rays(:, is_other_rays_in_this);
+				% combined_rays = [this_rays(:, is_this_rays_in_other), other_rays(:, is_other_rays_in_this)];
 				intersection_halfspace_representation = intersection(this.halfspace_representation, other.halfspace_representation);
 				result = ConvexPolyhedralCone(intersection_halfspace_representation);
 			else
 				result = intersection@ConvexPolyhedron(this, other);
 			end
+		end
+
+		function result = doConesIntersect(this, other)
+		  % Test whether two cones interesct non-trivially. 
+		  arguments(Input)
+		    this  ConvexPolyhedralCone;
+		    other ConvexPolyhedralCone;
+		  end % End of Input arguments block
+		  arguments(Output)
+		    result (1, 1) logical;
+		  end % End of Output arguments block
+		  
+			assert(this.dimension == 2, "Not implemented for dimensions other than 2.");
+
+		  % Check if any of the boudnary rays of one cone are in the other
+		  result = any(this.containsPoints(other.rays)) || any(other.containsPoints(this.rays));
 		end
 
 		% ╭─────────────────────────────────────╮
@@ -258,7 +294,13 @@ classdef ConvexPolyhedralCone < ConvexPolyhedron
 			% 	vertices = [this.rays, r*this.rays];
 			% 	sphere_over_approx_poly = Polytope.fromConvexHull(vertices);
 			% else
+			try
 				sphere_over_approx_poly = Polytope.fromConvexHull([this.rays, r*this.rays]);
+			catch exception
+				err = pwintz.Exception("ConvexPolyhedralCone:getUnitSphereOverApproximation", "An error occured while constructing the unit sphere over approximation for %s.\nThe points used to construct the convex hull were\n%D", this, [this.rays, r*this.rays]);
+				err = err.addCause(exception);
+				throw(err);
+			end
 			% end
 		end
 
@@ -338,7 +380,7 @@ classdef ConvexPolyhedralCone < ConvexPolyhedron
 			else
 				rays_string = sprintf('%d rays: \n%s\n', this.n_rays, formattedDisplayText(this.rays));
 			end
-			str = sprintf('ConvexPolyhedralCone in %dD with %sand with halfspace representation: \n%s\n', this.dimension, rays_string, this.halfspace_representation);
+			str = sprintf('ConvexPolyhedralCone in %dD with %sand with halfspace representation: \n%s', this.dimension, rays_string, this.halfspace_representation);
 			% if this.n_rays == 0
 			%   str = sprintf('ConvexPolyhedralCone with 0 rays (empty).\n');
 			% elseif this.n_rays == 1
@@ -366,27 +408,31 @@ classdef ConvexPolyhedralCone < ConvexPolyhedron
 		% │  ╰──────────────────────────────────╯  │
 		% ╰────────────────────────────────────────╯
 		function plot(this, varargin)
-			color = 0.0 * [1, 1, 1];
+			% Plot the cone in 2D or 3D. Example usage:
+			% 
+			% cone.plot("FaceColor", "red")
+			% 
+			
+			DEFAULT_COLOR = 0.0 * [1, 1, 1];
+			% pts = this.vertex + [this.rays, origin];
+			pts = [this.rays, this.origin];
+
 			switch this.dimension
 				case 2
-					pts = [this.rays, 0*this.rays(:, 1)];
-					patch(pts(1,:), pts(2, :), color, "FaceAlpha", 0.2, varargin{:});
+					patch("XData", pts(1,:), "YData", pts(2, :), "FaceColor", DEFAULT_COLOR, "FaceAlpha", 0.2, varargin{:});
 				case 3
-					edges = [
-						1, 2, 3;
-						1, 2, 4;
-						1, 3, 4;
-					];
+					% edges = [
+					% 	1, 2, 3;
+					% 	1, 2, 4;
+					% 	1, 3, 4;
+					% ];
 					% points = [0*this.rays(:, 1), this.rays]'
 					% plot(pts(1,:), pts(1, :), pts(3,:));
-					% tetramesh(edges, points, color, "FaceAlpha", 0.2, varargin{:});
-					this.rays
-					origin = zeros(this.dimension, 1);
-					vecnorm(this.rays)
-					patch(this.rays(1,:), this.rays(2, :), this.rays(3, :), color, "FaceAlpha", 0.2, varargin{:});
+					% tetramesh(edges, points, DEFAULT_COLOR, "FaceAlpha", 0.2, varargin{:});
+					patch(this.rays(1,:), this.rays(2, :), this.rays(3, :), DEFAULT_COLOR, "FaceAlpha", 0.2, varargin{:});
 					for i = 1:(this.n_rays-1)
-						points = [this.rays(:, i), this.rays(:, i+1), origin];
-						patch(points(1,:), points(2, :), points(3, :), color, "FaceAlpha", 0.2, varargin{:});
+						points = [this.rays(:, i), this.rays(:, i+1), this.origin];
+						patch(points(1,:), points(2, :), points(3, :), DEFAULT_COLOR, "FaceAlpha", 0.2, varargin{:});
 					end
 				otherwise
 					error("Unexpected case: %s.", this.dimension);

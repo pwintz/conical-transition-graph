@@ -1,4 +1,5 @@
 function [A_ineq, b_ineq, A_eq, b_eq] = preprocessLinearConstraints(A_ineq, b_ineq, A_eq, b_eq)
+  % ` runtests Test_preprocessLinearConstraints.m
 
   arguments(Input)
     A_ineq;
@@ -18,19 +19,19 @@ function [A_ineq, b_ineq, A_eq, b_eq] = preprocessLinearConstraints(A_ineq, b_in
   pwintz.assertions.assertSize(b_ineq, [n_inequality_constraints, 1]);
   pwintz.assertions.assertSize(b_eq,   [  n_equality_constraints, 1]);
 
-
   % Create normalized augmented matrices, where each row in A_ineq and A_eq have norm 1. 
-  A_ineq  = A_ineq ./ vecnorm(A_ineq')';
-  b_ineq  = b_ineq ./ vecnorm(A_ineq')';
-  A_eq  = A_eq     ./ vecnorm(A_eq')';
-  b_eq  = b_eq     ./ vecnorm(A_eq')';
+  A_ineq_row_norms = pwintz.arrays.rowNorms(A_ineq);
+  A_eq_row_norms   = pwintz.arrays.rowNorms(A_eq);
+  A_ineq  = A_ineq ./ A_ineq_row_norms;
+  b_ineq  = b_ineq ./ A_ineq_row_norms;
+  A_eq  = A_eq     ./ A_eq_row_norms;
+  b_eq  = b_eq     ./ A_eq_row_norms;
 
   constraints_dotted = A_ineq * A_ineq';
 
-  tol = 1e-4;
+  tol = 1e-12; % The value of this tolerance is important. 
       parallel_constraints = constraints_dotted >=  1 - tol;
   antiparallel_constraints = constraints_dotted <= -1 + tol;
-
 
   is_ineq_const_to_delete        = false(n_inequality_constraints, 1);
   is_ineq_const_to_make_eq_const = false(n_inequality_constraints, 1);
@@ -47,7 +48,6 @@ function [A_ineq, b_ineq, A_eq, b_eq] = preprocessLinearConstraints(A_ineq, b_in
       is_ineq_const_to_delete(m) = true;
     end
   end
-
 
   for i_antiparallel_constraint = find(antiparallel_constraints)'
     [m, n] = ind2sub(size(antiparallel_constraints), i_antiparallel_constraint);
@@ -83,4 +83,39 @@ function [A_ineq, b_ineq, A_eq, b_eq] = preprocessLinearConstraints(A_ineq, b_in
   % if isempty(A_ineq) 
   %   A_ineq = double.empty(0, x_dim)
   % end
+
+
+% ! I don't thing the following lines are needed anymore.
+%       Ab_ineq = [A_ineq, b_ineq];
+%       Ab_eq   = [A_eq, b_eq];
+% 
+%       % Remove duplicate rows
+%       Ab_ineq = pwintz.arrays.uniqueRows(Ab_ineq, tolerance=1e-9);
+% 
+%       % Find any rows that where the negation of the row is present in the array.
+%       [~, duplicate_row_ndxs, ~, unique_row_ndxs] = pwintz.arrays.duplicatedRows([Ab_ineq; -Ab_ineq], tolerance=1e-9);
+% 
+% 
+%       % all_indices = sort([duplicate_row_ndxs; unique_row_ndxs])
+% 
+%       % unique_row_ndxs    = intersect(1:size(A_ineq, 1), unique_row_ndxs)
+%       % duplicate_row_ndxs = intersect(1:size(A_ineq, 1), duplicate_row_ndxs)
+% 
+%       ineq_rows_to_add_to_eq_constraints    = intersect(1:size(Ab_ineq, 1), duplicate_row_ndxs);
+%       ineq_rows_to_keep_in_ineq_constraints = intersect(1:size(Ab_ineq, 1), unique_row_ndxs);
+%       
+%       % Add rows from Ab_ineq that create equality constraints.
+%       Ab_eq = [Ab_eq; Ab_ineq(ineq_rows_to_add_to_eq_constraints, :)];
+% 
+      % % ╭────────────────────────────────────────────────────────────────────╮
+      % % │             Remove duplicate equality constraint rows.             │
+      % % ╰────────────────────────────────────────────────────────────────────╯
+      % % TODO: This will not remove redundant rows if they have opposite signs. 
+      % Ab_eq = pwintz.arrays.uniqueRows(Ab_eq, tolerance=1e-9);
+      % 
+      % % Remove any rows from Ab_ineq that we didnt add 
+      % Ab_ineq = Ab_ineq(ineq_rows_to_keep_in_ineq_constraints, :);
+
+      % [Ab_ineq_unique, src_ndxs_cell, out_rows_ndxs_cell] = pwintz.arrays.uniqueRows(C)
+
 end

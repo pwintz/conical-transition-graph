@@ -6,6 +6,11 @@ classdef ConvexPolyhedron < handle
     % Define instance constants.
     dimension (1, 1) int32;
     halfspace_representation (1, 1) HalfspaceRepresentation;
+
+    % Any convex polyhedron can be described an the minkowski sum of a polytope and a cone. 
+    % Thus, we describe the polyhedron by the vertices of the polytope and the rays of the cone. 
+    % polytope_vertices (:, :) double; 
+    % cone_rays         (:, :) double;
   end
 
   methods(Static)
@@ -37,7 +42,7 @@ classdef ConvexPolyhedron < handle
     % │ ╰──────────────────────────────────╯ │
     % ╰──────────────────────────────────────╯
 
-    function is_point_in_poly = contains(this, points)
+    function is_point_in_poly = containsPoints(this, points)
       % Use "isPointInPolygon" from the matGeom package.
       is_point_in_poly = this.halfspace_representation.containsPoints(points);
       % TF =  isPointInPolygon(points', this.vertices')';
@@ -49,6 +54,39 @@ classdef ConvexPolyhedron < handle
 
     function is_unbounded = isUnbounded(this)
       is_unbounded = ~this.halfspace_representation.isBounded();
+    end
+
+    function n_active = numActiveInequalityConstraints(this, point)
+      active_ndxs = this.halfspace_representation.activeInequalityConstraintsIndices(point);
+      n_active = numel(active_ndxs);
+    end % End of function
+
+    
+    function result = atXDoesVPointInward(this, bnd_point, vector)
+      arguments(Input)
+        this;
+        bnd_point (:, 1) double;
+        vector    (:, 1) double;
+      end % End of Input arguments block
+      arguments(Output)
+        result logical {pwintz.validators.mustBeScalar};
+      end % End of Output arguments block
+      
+      [A_active, ~] = this.halfspace_representation.activeInequalityConstraints(bnd_point);
+      A_eq = this.halfspace_representation.A_eq;
+    
+      if ~isempty(A_eq) > 0 && isempty(A_active)
+        pwintz.error("The point %D is not on the boundary of this %D", bnd_point, this)
+      end
+    
+      % The point "bnd_point" is on the boundary, so A_active*bnd_point = b_active.
+      % We want to test if A_active*(bnd_point + vector) is <= or > b_active, which is the same as asking if 
+      % A_active*vector) is positive or negative.
+      result = all(A_active * vector <= 0) && all(abs(A_eq * vector) < 1e-7);
+    
+      % assert(this.halfspace_representation.n_equality_constraints == 0, "Not implemented for equality constraints.");
+      % A_eq = this.halfspace_representation.A_eq;
+      % assert(all(abs(A_eq * v) < 1e-6));
     end
 
     % ╭────────────────────────────────────────────╮
@@ -65,50 +103,54 @@ classdef ConvexPolyhedron < handle
         return
       end
       disp("Using Polytope/minkowskiSum for sum of two polytopes.");
-      error("Polytope/minkowskiSum is not implemented.");
+      error("ConvexPolyhedron/minkowskiSum is not implemented.");
 
-      % ⋘────────── Get Vertices of Operands ──────────⋙
-      left_vertices   = ConvexPolyhedron.verticesFromOperand(left);
-      right_vertices  = ConvexPolyhedron.verticesFromOperand(right);
-
-      % ⋘────────── Get numbers of vertices ──────────⋙
-      n_left  = size(left_vertices, 2);
-      n_right = size(right_vertices, 2);
-      n_points = n_left * n_right;
-
-      % ⋘────────── Generate all the combinations of sums ──────────⋙
-      points = nan(2, n_points);
-      i_point = 1;
-      for i_left = 1:n_left
-        for i_right = 1:n_right
-          points(:, i_point) = left_vertices(:, i_left) + right_vertices(:, i_right);
-          i_point = i_point + 1;
-        end
-      end
-
-      % ⋘────────── Set result to convex hull ──────────⋙
-      result = ConvexPolyhedron.fromConvexHull(points);
-
-      % # The following code was an attempt at a more efficient implementation.
-      % https://cp-algorithms.com/geometry/minkowski.html
-      % left_ndx  = left.first_vertex_ndx;
-      % right_ndx = right.first_vertex_ndx;
-      % n_result_vertices = left.n_vertices + right.n_vertices;
-      % for result_ndx = 1:n_result_vertices
-      %   result_vertices(result_ndx) = left.vertices(left_ndx) + right.vertices(right_ndx);
-      %   if atan2(y, x)
+      % % ⋘────────── Get Vertices of Operands ──────────⋙
+      % left_vertices   = ConvexPolyhedron.verticesFromOperand(left);
+      % right_vertices  = ConvexPolyhedron.verticesFromOperand(right);
+      % 
+      % % ⋘────────── Get numbers of vertices ──────────⋙
+      % n_left  = size(left_vertices, 2);
+      % n_right = size(right_vertices, 2);
+      % n_points = n_left * n_right;
+      % 
+      % % ⋘────────── Generate all the combinations of sums ──────────⋙
+      % points = nan(2, n_points);
+      % i_point = 1;
+      % for i_left = 1:n_left
+      %   for i_right = 1:n_right
+      %     points(:, i_point) = left_vertices(:, i_left) + right_vertices(:, i_right);
+      %     i_point = i_point + 1;
+      %   end
       % end
+      % 
+      % % ⋘────────── Set result to convex hull ──────────⋙
+      % result = ConvexPolyhedron.fromConvexHull(points);
+      % 
+      % % # The following code was an attempt at a more efficient implementation.
+      % % https://cp-algorithms.com/geometry/minkowski.html
+      % % left_ndx  = left.first_vertex_ndx;
+      % % right_ndx = right.first_vertex_ndx;
+      % % n_result_vertices = left.n_vertices + right.n_vertices;
+      % % for result_ndx = 1:n_result_vertices
+      % %   result_vertices(result_ndx) = left.vertices(left_ndx) + right.vertices(right_ndx);
+      % %   if atan2(y, x)
+      % % end
     end
 
     function result = intersection(left, right)
-      intersection_halfspace_representation = left.halfspace_representation.intersection(right.halfspace_representation);
-      if intersection_halfspace_representation.isBounded()
-        result = Polytope(intersection_halfspace_representation);
-      else
-        result = ConvexPolyhedron(intersection_halfspace_representation);
+      try
+        intersection_halfspace_representation = left.halfspace_representation.intersection(right.halfspace_representation);
+        if intersection_halfspace_representation.isBounded()
+          result = Polytope(intersection_halfspace_representation);
+        else
+          result = ConvexPolyhedron(intersection_halfspace_representation);
+        end
+      catch caught_err
+        err = pwintz.Exception("ConvexPolyhedron:intersection", "Error: Failed to compute the intersection of\n%D\n\nand\n%D", left, right);
+        caught_err = caught_err.addCause(err);
+        rethrow(caught_err);
       end
-
-      return
       
 
       % % ⋘────────── Get vertices of operands ──────────⋙
@@ -135,51 +177,28 @@ classdef ConvexPolyhedron < handle
       % end
     end
 
-    function result = intersectRay(this, v)
-      % v is a vector in R^2 (v ≠ 0) that defines a ray from the origin.
-
-      assert(iscolumn(v), "v must be a column vector");
-      assert(size(v, 1) == 2);
-
-      % ⋘──────────  Use the geo2d package to compute intersection. ──────────⋙
-      % Create a "ray" in the format used by geo2d, namely
-      % [x0, y0, dx, dy], where ray is [x0; y0] + t[dx; dy] for all t>0.
-      ray = [0 0 v'];
-
-      % TODO: intersectRayPolygon will not throw an error if ray and the polygon are swapped. We should add some error checking to catch that. 
-      intersection_points = intersectRayPolygon(ray, this.vertices);
-      
-      result = ConvexPolyhedron(intersection_points);
-    end
-
-    function result = linearTransform(this, A)
-      error("Deprectated. Use a polytope or convexpolyhedralcone.");
-      % assert(cond(A) < 1e9, "Only implemented for invertible A, for now. Otherwise we need to set collapses to a lower.");
-      % result = ConvexPolyhedron(A*this.vertices);
-    end
-
-    function result = atXDoesVPointInward(this, bnd_point, vector)
-      arguments(Input)
-        this;
-        bnd_point (:, 1) double;
-        vector    (:, 1) double;
-      end % End of Input arguments block
-      arguments(Output)
-        result logical {pwintz.validators.mustBeScalar};
-      end % End of Output arguments block
-      
-      [A_active, ~] = this.halfspace_representation.activeInequalityConstraintsAtPoint(bnd_point);
-      A_eq = this.halfspace_representation.A_eq;
-
-      % The point "bnd_point" is on the boundary, so A_active*bnd_point = b_active.
-      % We want to test if A_active*(bnd_point + vector) is <= or > b_active, which is the same as asking if 
-      % A_active*vector) is positive or negative.
-      result = all(A_active * vector <= 0) && all(abs(A_eq * vector) < 1e-7);
-
-      % assert(this.halfspace_representation.n_equality_constraints == 0, "Not implemented for equality constraints.");
-      % A_eq = this.halfspace_representation.A_eq;
-      % assert(all(abs(A_eq * v) < 1e-6));
-    end
+    % function result = intersectRay(this, v)
+    %   % v is a vector in R^2 (v ≠ 0) that defines a ray from the origin.
+    % 
+    %   assert(iscolumn(v), "v must be a column vector");
+    %   assert(size(v, 1) == 2);
+    % 
+    %   % ⋘──────────  Use the geo2d package to compute intersection. ──────────⋙
+    %   % Create a "ray" in the format used by geo2d, namely
+    %   % [x0, y0, dx, dy], where ray is [x0; y0] + t[dx; dy] for all t>0.
+    %   ray = [0 0 v'];
+    % 
+    %   % TODO: intersectRayPolygon will not throw an error if ray and the polygon are swapped. We should add some error checking to catch that. 
+    %   intersection_points = intersectRayPolygon(ray, this.vertices);
+    %   
+    %   result = ConvexPolyhedron(intersection_points);
+    % end
+    % 
+    % function result = linearTransform(this, A)
+    %   error("Deprectated. Use a polytope or convexpolyhedralcone.");
+    %   % assert(cond(A) < 1e9, "Only implemented for invertible A, for now. Otherwise we need to set collapses to a lower.");
+    %   % result = ConvexPolyhedron(A*this.vertices);
+    % end
 
     % ╭──────────────────────────────────────────────────────╮
     % │ ╭──────────────────────────────────────────────────╮ │
@@ -216,17 +235,13 @@ classdef ConvexPolyhedron < handle
 
     % Overload "==" operator
     function is_equal = eq(left, right)
-
-      % These checks to not test allow for tolerance and depend on vertices, which is only available for polytopes.
-      left_subset_right = all(ismember( left.vertices', right.vertices', 'rows'));
-      right_subset_left = all(ismember(right.vertices',  left.vertices', 'rows'));
-      is_equal = left_subset_right && right_subset_left;
-
+      % % These checks to not test allow for tolerance and depend on vertices, which is only available for polytopes.
+      % left_subset_right = all(ismember( left.vertices', right.vertices', 'rows'));
+      % right_subset_left = all(ismember(right.vertices',  left.vertices', 'rows'));
+      % is_equal = left_subset_right && right_subset_left;
 
       % We should use an equality check in the halfspace representation. 
       is_equal = left.halfspace_representation == right.halfspace_representation;
-
-
     end % End of function
     
     % Overload "~=" operator

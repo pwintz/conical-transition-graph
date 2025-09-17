@@ -39,7 +39,7 @@ classdef Polytope < ConvexPolyhedron
 
     function convex_polyhedron = fromConvexHull(points)
       dimension = size(points, 1);
-      assert(ismember(dimension, [2, 3]), "Each column in 'points' must have two elements. Instead it had %d.", size(points, 1));
+      assert(ismember(dimension, [2, 3]), "Each column in 'points' must have 2 or 3 elements. Instead it had %d.", size(points, 1));
       % indices = convhull(points', 'simplify', true);
       % The output of convhull is an array of indices from the "points" list such that the points are arranged counter-clockwise, with the first one repeated at the end. We trim the last index so that 
       % vertices = points(:, indices(1:end-1));
@@ -260,9 +260,19 @@ classdef Polytope < ConvexPolyhedron
 
     function plot(this, varargin)
     
+      DEFAULT_COLOR = 0.0 * [1, 1, 1];
+      
       switch this.dimension
         case 2
-          patch('XData', this.vertices(1, :),'YData', this.vertices(2, :), varargin{:});
+          switch this.n_vertices
+            case 1
+
+              plot(this.vertices(1, :), this.vertices(2, :), "Marker", "x");
+            case 2
+              plot(this.vertices(1, :), this.vertices(2, :), "LineWidth", 5);
+            otherwise
+              patch("XData", this.vertices(1,:), "YData", this.vertices(2, :), "FaceColor", DEFAULT_COLOR, "FaceAlpha", 0.2, varargin{:});
+          end
         case 3
           % K = convhull(x,y,z);
           x = this.vertices(1, :);

@@ -25,10 +25,10 @@ classdef TestPolytope < matlab.unittest.TestCase
       
       % ⋘────────── Verify ──────────⋙
       testCase.assertInstanceOf(p_cap_p, "Polytope");
-      testCase.assertTrue(p_cap_p.contains([1/3; 1/3]));
-      testCase.assertFalse(p_cap_p.contains([1; 1]));
-      testCase.assertFalse(p_cap_p.contains([-1; 1]));
-      testCase.assertFalse(p_cap_p.contains([1; -1]));
+      testCase.assertTrue(p_cap_p.containsPoints([1/3; 1/3]));
+      testCase.assertFalse(p_cap_p.containsPoints([1; 1]));
+      testCase.assertFalse(p_cap_p.containsPoints([-1; 1]));
+      testCase.assertFalse(p_cap_p.containsPoints([1; -1]));
     end % End of function.
   end % End of test methods
 

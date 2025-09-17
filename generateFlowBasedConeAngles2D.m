@@ -1,7 +1,7 @@
 function state_cone_angles = generateFlowBasedConeAngles2D(options)
   arguments(Input)
     options.maxStateConeAngle      (1, 1) double = 2*pi / 10;
-    options.maxDerivativeConeAngle (1, 1) double = 2*pi / 20;
+    options.maxDerivativeConeAngle (1, 1) double = 2*pi / 10;
     options.flowMapMatrix     (2, 2) double = -eye(2, 2); % "A_c" in \dot x = A_c x.
     options.flowSetStartAngle (1, 1) double =  0;
     options.flowSetEndAngle   (1, 1) double = pi;

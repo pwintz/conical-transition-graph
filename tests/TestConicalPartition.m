@@ -271,7 +271,7 @@ classdef TestConicalPartition < matlab.unittest.TestCase
     
           % Check that the cone contains the ray.
           ray = conical_partition.getRay(ray_ndx);
-          testCase.assertTrue(cone.contains(ray));
+          testCase.assertTrue(cone.containsPoints(ray));
         end
       end
     end % End function.
@@ -301,7 +301,7 @@ classdef TestConicalPartition < matlab.unittest.TestCase
           testCase.assertEqual(cone.n_rays, 3, "For tetrahedrons, we expect three rays.");
           
           % Check that the cone contains the ray.
-          testCase.assertTrue(cone.contains(ray));
+          testCase.assertTrue(cone.containsPoints(ray));
         end
       end
     end % End function.
@@ -441,8 +441,8 @@ classdef TestConicalPartition < matlab.unittest.TestCase
       [intersecting_cone_ndxs, does_cone_intersect, intersections] = conical_partition.getConeIntersections(polyhedron);
       
       % ⋘────────── Verify ──────────⋙
-      conical_partition.cones{:}
-      expected_cone_ndx = conical_partition.getConesContainingPoint([1; 1])
+      % conical_partition.cones{:};
+      expected_cone_ndx = conical_partition.getConesContainingPoint([1; 1]);
       conical_partition.getCone(expected_cone_ndx)
       testCase.assertEqual(intersecting_cone_ndxs, expected_cone_ndx);
       testCase.assertNumElements(intersections, n_slices);

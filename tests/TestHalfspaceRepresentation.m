@@ -63,6 +63,25 @@ classdef TestHalfspaceRepresentation < matlab.unittest.TestCase
     % ╭────────────────────────────────────────────────────────╮
     % │             Constructor Merges Constraints             │
     % ╰────────────────────────────────────────────────────────╯
+    function test_constructor_normalizes_A_and_b(testCase)
+      % ⋘────────── Setup ───────────⋙
+      A_ineq = [1, 2];
+      b_ineq = 3;
+      A_eq = [4, 5];
+      b_eq =    -2;
+      
+      % ⋘────────── Execute ─────────⋙
+      h = HalfspaceRepresentation(A_ineq, b_ineq, A_eq, b_eq);
+      
+      % ⋘────────── Verify ──────────⋙
+      A_ineq_expected = [1, 2] / norm([1, 2]);
+      b_ineq_expected = 3 / norm([1, 2]);
+      testCase.assertEqual(h.n_inequality_constraints, int32(1));
+      testCase.assertEqual(h.A_ineq, A_ineq_expected, "A_ineq");
+      testCase.assertEqual(h.b_ineq, b_ineq_expected, "b_ineq");
+      
+    end % End of function.
+
     function test_constructor_removesIdenticalInequalityConstraints(testCase)
       % ⋘────────── Setup ───────────⋙
       A_ineq = [1, 2; 1, 2];
@@ -75,8 +94,8 @@ classdef TestHalfspaceRepresentation < matlab.unittest.TestCase
       A_ineq_expected = [1, 2] / norm([1, 2]);
       b_ineq_expected = 3 / norm([1, 2]);
       testCase.assertEqual(h.n_inequality_constraints, int32(1));
-      testCase.assertEqual(h.A_ineq, A_ineq_expected);
-      testCase.assertEqual(h.b_ineq, b_ineq_expected);
+      testCase.assertEqual(h.A_ineq, A_ineq_expected, "A_ineq");
+      testCase.assertEqual(h.b_ineq, b_ineq_expected, "b_ineq");
       
     end % End of function.
 
@@ -307,11 +326,8 @@ classdef TestHalfspaceRepresentation < matlab.unittest.TestCase
       h = HalfspaceRepresentation(A_ineq, b_ineq);
       
       % ⋘────────── Execute ─────────⋙
-      h.getConeRays()
+      h.getConeRays();
       
-      
-      % ⋘────────── Verify ──────────⋙
-      testCase.verifyFail("Test case needs to be implemented.");
     end % End of function.
 
     % ╭──────────────────────────────────────────────╮
@@ -339,7 +355,7 @@ classdef TestHalfspaceRepresentation < matlab.unittest.TestCase
 
 
     % ╭───────────────────────────────────╮
-    % │             FromPoint             │
+    % │             FromConvexHull             │
     % ╰───────────────────────────────────╯
     function test_fromConvexHull_single_point(testCase)
       % ⋘────────── Setup ───────────⋙
@@ -351,8 +367,116 @@ classdef TestHalfspaceRepresentation < matlab.unittest.TestCase
       % ⋘────────── Verify ──────────⋙
       testCase.assertTrue(h.containsPoint(point));
     end % End of function.
+
+    function test_fromConvexHull_caseThatWasProducingErrors(testCase)
+      % ⋘────────── Setup ───────────⋙
+      points = [ 
+        1.0000,    0.9980,    1.0005,    0.9985;
+             0,    0.0628,         0,    0.0628;
+      ];
+      pwintz.plots.plotPoints(points, "plotArgs", {"LineStyle", "-"});
+      
+      % ⋘────────── Execute ─────────⋙
+      h = HalfspaceRepresentation.fromConvexHull(points);
+      bounded_vertices = h.getBoxBoundedVertices();
+      
+      % ⋘────────── Verify ──────────⋙
+      testCase.assertTrue(h.isBounded());
+    end % End of function.
+
+    function test_fromConvexHull_anotherCausingProblems(testCase)
+      % ⋘────────── Setup ───────────⋙
+      points = [
+        1.0000,  0.9980,  1.0005,  0.9985,  0.3249,  0.3229,  0.3254,  0.3234,  0.3371,  0.3352,  0.3376,  0.3357;
+        0, 0.0628, 0, 0.0628   -0.7377   -0.6749   -0.7377   -0.6749   -0.7487   -0.6860   -0.7487   -0.6859;
+      ];
+      
+      % ⋘────────── Execute ─────────⋙
+      h = HalfspaceRepresentation.fromConvexHull(points);
+      bounded_vertices = h.getBoxBoundedVertices();
+      
+      % ⋘────────── Verify ──────────⋙
+      testCase.assertTrue(h.isBounded());
+
+    end % End of function.
+
+
+    % ╭─────────────────────────────────────────╮
+    % │             fromConicalHull             │
+    % ╰─────────────────────────────────────────╯
+    function test_fromConicalHull_nearlyParallelRays(testCase)
+      % ⋘────────── Setup ───────────⋙
+      rays = [
+        -0.98228725, -0.98006658; 
+         0.18738131,  0.19866933; 
+      ];
+      % rays(:, 1) - rays(:, 2)
+      rays = [
+        [1; 1],  [1.01; 1];
+      ];
+      
+      % ⋘────────── Execute ─────────⋙
+      
+      hs = HalfspaceRepresentation.fromConicalHull(rays);
+      
+      % ⋘────────── Verify ──────────⋙
+      % testCase.verifyFail("Test case needs to be implemented.");
+    end % End of function.
+
+    function test_fromConicalHull_2_parallel_rays(testCase)
+      % ⋘────────── Setup ───────────⋙
+      ray = [1; 1];
+      rays = [ray, 2*ray];
+      
+      % ⋘────────── Execute ─────────⋙
+      hs = HalfspaceRepresentation.fromConicalHull(rays);
+      
+      % ⋘────────── Verify ──────────⋙
+      testCase.assertTrue(hs.containsPoint(ray));
+      testCase.assertTrue(hs.containsPoints(ray));
+
+      % The negation of the ray should not be in the set.
+      testCase.assertFalse(hs.containsPoint(-ray));
+      
+      % Only one ray is kept
+      testCase.assertEqual(hs.rays, ray ./ norm(ray)); 
+    end % End of function.
+
+    % ╭────────────────────────────────────────────────────────────╮
+    % │             activeInequalityConstraintIndices             │
+    % ╰────────────────────────────────────────────────────────────╯
+    function test_activeInequalityConstraintIndices(testCase)
+      % ⋘────────── Setup ───────────⋙
+      % A = -eye(2); % First quandrant.
+      % b = [0; 0];
+      rays = [[1; 0], [0; 1]];
+      h = HalfspaceRepresentation.fromConicalHull(rays);
+
+      horizontal_constraint_ndx = pwintz.arrays.findRowIn([-1, 0], h.A_ineq);
+      vertical_constraint_ndx = pwintz.arrays.findRowIn([0, -1], h.A_ineq);
+      
+      % ⋘────────── Execute and Verify ──────────⋙
+      testCase.assertEqual(h.activeInequalityConstraintIndices([0; 0]), [1; 2]);
+      testCase.assertEqual(h.activeInequalityConstraintIndices([1; 0]), vertical_constraint_ndx);
+      testCase.assertEqual(h.activeInequalityConstraintIndices([0; 1]), horizontal_constraint_ndx);
+      testCase.assertEqual(h.activeInequalityConstraintIndices([1; 1]), double.empty(0, 1));
+    end % End of function.
+
+    % ╭────────────────────────────────────────────────╮
+    % │             String representations             │
+    % ╰────────────────────────────────────────────────╯
+    function test_char(~)
+      % ⋘────────── Setup ───────────⋙
+      rays = [[1; 0], [0; 1]];
+      
+      % ⋘────────── Execute ─────────⋙
+      hs = HalfspaceRepresentation.fromConicalHull(rays);
+      
+      % ⋘────────── Execute ─────────⋙
+      char(hs);
+      sprintf("%s", hs);
+    end % End of function.
+
   end % End of test methods
-
-
 end % End of test methods block
 

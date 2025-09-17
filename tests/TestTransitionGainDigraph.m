@@ -17,17 +17,18 @@ classdef TestTransitionGainDigraph < matlab.unittest.TestCase
       tg_graph = TransitionGainDigraph(cp);
       
       % ⋘────────── Verify ──────────⋙
-      testCase.assertEqual(tg_graph.numVertexNodes, cp.n_vertices);
-      testCase.assertEqual(tg_graph.numConeNodes, cp.n_cones);
-      testCase.assertEqual(tg_graph.numNodes, cp.n_cones + cp.n_vertices);
-      testCase.assertEqual(tg_graph.numEdges, 0);
+      testCase.assertEqual(tg_graph.numVertexNodes(1), cp.n_vertices);
+      testCase.assertEqual(tg_graph.numConeNodes(1), cp.n_cones);
+      testCase.assertEqual(tg_graph.numNodes(), cp.n_cones + cp.n_vertices);
+      testCase.assertEqual(tg_graph.numEdges(), 0);
 
 
       % Check that "hasEdgesFromConeVertex" will return false if there is not an edge.
-      testCase.assertFalse(tg_graph.hasEdgeFromVertexToCone(2, 2));
-      testCase.assertFalse(tg_graph.hasEdgeFromConeToCone(2, 2));
-      testCase.assertFalse(tg_graph.hasEdgeFromVertexToVertex(2, 2));
-      testCase.assertFalse(tg_graph.hasEdgeFromConeToVertex(2, 2));
+      mode_ndx = 1;
+      testCase.assertFalse(tg_graph.hasEdgeFromVertexToCone(  mode_ndx, 2, mode_ndx, 2));
+      testCase.assertFalse(tg_graph.hasEdgeFromConeToCone(    mode_ndx, 2, mode_ndx, 2));
+      testCase.assertFalse(tg_graph.hasEdgeFromVertexToVertex(mode_ndx, 2, mode_ndx, 2));
+      testCase.assertFalse(tg_graph.hasEdgeFromConeToVertex(  mode_ndx, 2, mode_ndx, 2));
     end % End of function.
 
     % ╭────────────────────────────────────────────────────────────╮
@@ -188,6 +189,149 @@ classdef TestTransitionGainDigraph < matlab.unittest.TestCase
         testCase.assertEqual(size(vertex_reach_table, 1), 1);
         
       end % End of function.
+
+      % ╭──────────────────────────────────────────────╮
+      % │  ╭────────────────────────────────────────╮  │
+      % │  │             Multiple Modes             │  │
+      % │  ╰────────────────────────────────────────╯  │
+      % ╰──────────────────────────────────────────────╯
+      function test_multiple_modes(testCase)
+        % ⋘────────── Setup ───────────⋙
+        conical_partitions = {
+          ConicalPartition.fromNumSlices(4);
+          ConicalPartition.fromNumSlices(8);
+        }
+        transition_graph = TransitionGainDigraph(conical_partitions{:});
+
+        mode_1 = 1;
+        cone_1 = 2;
+        mode_2 = 2;
+        cone_2 = 5;
+        min_gain = 0.2;
+        max_gain = 2.2;
+
+        % ⋘────────── Execute ─────────⋙
+        transition_graph.addEdgeFromConeToCone(mode_1, cone_1, mode_2, cone_2, min_gain, max_gain);
+        
+        % ⋘────────── Verify ──────────⋙
+        [edge_row, start_node, end_node] = transition_graph.getEdgeRow(1);
+        testCase.assertEqual(start_node.ModeIndex, mode_1);
+        testCase.assertEqual(end_node.ModeIndex,   mode_2);
+        testCase.assertEqual(start_node.ConeIndex, cone_1);
+        testCase.assertEqual(end_node.ConeIndex,   cone_2);
+        testCase.assertEqual(start_node.VertexIndex, 0);
+        testCase.assertEqual(end_node.VertexIndex,   0);
+        testCase.assertEqual(edge_row.MinGain, min_gain);
+        testCase.assertEqual(edge_row.MaxGain, max_gain);
+        
+        % ⋘────────── Setup ───────────⋙
+        mode_1 = 2;
+        vertex_1 = 2;
+        mode_2 = 1;
+        cone_2 = 5;
+        min_gain = 1.2;
+        max_gain = 22.2;
+
+        % ⋘────────── Execute ─────────⋙
+        transition_graph.addEdgeFromVertexToVertex(mode_1, vertex_1, mode_2, cone_2, min_gain, max_gain);
+        
+        % ⋘────────── Verify ──────────⋙
+        [edge_row, start_node, end_node] = transition_graph.getEdgeRow(2);
+        testCase.assertEqual(start_node.ModeIndex, mode_1);
+        testCase.assertEqual(end_node.ModeIndex,   mode_2);
+        testCase.assertEqual(start_node.VertexIndex, vertex_1);
+        testCase.assertEqual(end_node.VertexIndex,   cone_2);
+        testCase.assertEqual(start_node.ConeIndex, 0);
+        testCase.assertEqual(end_node.ConeIndex,   0);
+        testCase.assertEqual(edge_row.MinGain, min_gain);
+        testCase.assertEqual(edge_row.MaxGain, max_gain);
+      end % End of function.
+
+
+      % ╭────────────────────────────────────────────────╮
+      % │  ╭──────────────────────────────────────────╮  │
+      % │  │             Integration Test             │  │
+      % │  ╰──────────────────────────────────────────╯  │
+      % ╰────────────────────────────────────────────────╯
+      function test_multiple_modes_from_flows_and_jumps(testCase)
+        % ⋘────────── Setup ───────────⋙
+        flow_map_matrix_1 = [
+          2, -3.4;
+          2, 1;
+        ];
+        flow_map_matrix_2 = [
+          -1, 3.4;
+          -3.4, -2;
+        ];
+
+        % Flow set angles
+        flow_set_start_angle_1 = 0;
+        flow_set_end_angle_1   = pi/2;
+        flow_set_start_angle_2 = 0;
+        flow_set_end_angle_2   = pi;
+        
+        flow_set_angles_1 = generateFlowBasedConeAngles2D(...
+          flowMapMatrix=flow_map_matrix_1, ...
+          flowSetStartAngle=flow_set_start_angle_1, ...
+          flowSetEndAngle=flow_set_end_angle_1);
+        
+        flow_set_angles_2 = generateFlowBasedConeAngles2D(...
+          flowMapMatrix=flow_map_matrix_2, ...
+          flowSetStartAngle=flow_set_start_angle_2, ...
+          flowSetEndAngle=flow_set_end_angle_2);
+        
+        % Discrete jump maps.
+        jump_map_matrix_1_mapsto_1 = [-1.6, 3; -0.2, -0.1]; 
+        jump_map_matrix_1_mapsto_2 = -magic(2); 
+        jump_map_matrix_2_mapsto_1 = magic(2); 
+        jump_map_matrix_2_mapsto_2 = -eye(2) + 0.1; 
+
+        jump_set_1_mapsto_1_start_angle  = pi - 0.1;  jump_set_1_mapsto_1_end_angle    = pi + 0.3;
+        jump_set_1_mapsto_2_start_angle  = 5*pi/6;      jump_set_1_mapsto_2_end_angle    = pi;
+        jump_set_2_mapsto_1_start_angle  = pi - 0.1;  jump_set_2_mapsto_1_end_angle    = pi;
+        jump_set_2_mapsto_2_start_angle  = 0;         jump_set_2_mapsto_2_end_angle    = pi/6;
+
+        jump_set_image_angles_1_mapsto_1 = mapAnglesByLinearMap(jump_map_matrix_1_mapsto_1, [jump_set_1_mapsto_1_start_angle, jump_set_1_mapsto_1_end_angle]);
+        jump_set_image_angles_1_mapsto_2 = mapAnglesByLinearMap(jump_map_matrix_1_mapsto_2, [jump_set_1_mapsto_2_start_angle, jump_set_1_mapsto_2_end_angle]);
+        jump_set_image_angles_2_mapsto_1 = mapAnglesByLinearMap(jump_map_matrix_2_mapsto_1, [jump_set_2_mapsto_1_start_angle, jump_set_2_mapsto_1_end_angle]);
+        jump_set_image_angles_2_mapsto_2 = mapAnglesByLinearMap(jump_map_matrix_2_mapsto_2, [jump_set_2_mapsto_2_start_angle, jump_set_2_mapsto_2_end_angle]);
+        
+        mode_1_angles = [ ... 
+          ... % Add angles for flows.
+          flow_set_angles_1, ... 
+          ... % Add angles for jumps from this mode.
+          jump_set_1_mapsto_1_start_angle, ...
+          jump_set_1_mapsto_1_end_angle, ...
+          jump_set_1_mapsto_2_start_angle, ...
+          jump_set_1_mapsto_2_end_angle, ...
+          ... % Add angles for jumps into this mode.
+          jump_set_image_angles_1_mapsto_1, ... 
+          jump_set_image_angles_2_mapsto_1 ... 
+        ];
+        
+        mode_2_angles = [ ... 
+          ... % Add angles for flows.
+          flow_set_angles_2, ... 
+          ... % Add angles for jumps from this mode.
+          jump_set_2_mapsto_1_start_angle, ...
+          jump_set_2_mapsto_1_end_angle, ...
+          jump_set_2_mapsto_2_start_angle, ...
+          jump_set_2_mapsto_2_end_angle, ...
+          ... % Add angles for jumps into this mode.  
+          jump_set_image_angles_1_mapsto_2, ... 
+          jump_set_image_angles_2_mapsto_2 ... 
+        ];
+
+        conical_partition_1 = ConicalPartition.fromAngles2D(mode_1_angles);
+        conical_partition_2 = ConicalPartition.fromAngles2D(mode_2_angles);
+
+        % ⋘────────── Execute ─────────⋙
+        
+        
+        % ⋘────────── Verify ──────────⋙
+        testCase.verifyFail("Test case needs to be implemented.");
+      end % End of function.
+
   end % End of test methods
 
 

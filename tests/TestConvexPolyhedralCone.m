@@ -78,12 +78,12 @@ classdef TestConvexPolyhedralCone < matlab.unittest.TestCase
       
       % ⋘────────── Verify ──────────⋙
       testCase.assertInstanceOf(p_cap_p, "Polytope");
-      testCase.assertTrue(p_cap_p.contains([0; 0]));% Contains origin.
-      testCase.assertTrue(p_cap_p.contains([1; 1]));
-      testCase.assertTrue(p_cap_p.contains(1e4*[1; 1]));
-      testCase.assertFalse(p_cap_p.contains([1; 0]));
-      testCase.assertFalse(p_cap_p.contains([0; 1]));
-      testCase.assertFalse(p_cap_p.contains([-1; -1]));
+      testCase.assertTrue(p_cap_p.containsPoints([0; 0]));% Contains origin.
+      testCase.assertTrue(p_cap_p.containsPoints([1; 1]));
+      testCase.assertTrue(p_cap_p.containsPoints(1e4*[1; 1]));
+      testCase.assertFalse(p_cap_p.containsPoints([1; 0]));
+      testCase.assertFalse(p_cap_p.containsPoints([0; 1]));
+      testCase.assertFalse(p_cap_p.containsPoints([-1; -1]));
     end % End of function.
 
     function test_intersection_cone_cap_cone_3D(testCase)
@@ -97,12 +97,12 @@ classdef TestConvexPolyhedralCone < matlab.unittest.TestCase
       
       % ⋘────────── Verify ──────────⋙
       testCase.assertInstanceOf(p_cap_p, "Polytope");
-      testCase.assertTrue(p_cap_p.contains([0; 0]));% Contains origin.
-      testCase.assertTrue(p_cap_p.contains([1; 1]));
-      testCase.assertTrue(p_cap_p.contains(1e4*[1; 1]));
-      testCase.assertFalse(p_cap_p.contains([1; 0]));
-      testCase.assertFalse(p_cap_p.contains([0; 1]));
-      testCase.assertFalse(p_cap_p.contains([-1; -1]));
+      testCase.assertTrue(p_cap_p.containsPoints([0; 0]));% Contains origin.
+      testCase.assertTrue(p_cap_p.containsPoints([1; 1]));
+      testCase.assertTrue(p_cap_p.containsPoints(1e4*[1; 1]));
+      testCase.assertFalse(p_cap_p.containsPoints([1; 0]));
+      testCase.assertFalse(p_cap_p.containsPoints([0; 1]));
+      testCase.assertFalse(p_cap_p.containsPoints([-1; -1]));
     end % End of function.
 
     function test_intersection_cone_cap_polytope(testCase)
@@ -116,12 +116,12 @@ classdef TestConvexPolyhedralCone < matlab.unittest.TestCase
       
       % ⋘────────── Verify ──────────⋙
       testCase.assertInstanceOf(p_cap_p, "Polytope");
-      testCase.assertTrue(p_cap_p.contains([0; 0]), "Contains origin");
-      testCase.assertTrue(p_cap_p.contains([1; 1]), "Contains [1; 1]");
-      testCase.assertFalse(p_cap_p.contains(1e4*[1; 1]), "Does not contain a large vector");
-      testCase.assertTrue(p_cap_p.contains([1; 0]));
-      testCase.assertFalse(p_cap_p.contains([0; 1]));
-      testCase.assertFalse(p_cap_p.contains([-1; -1]));
+      testCase.assertTrue(p_cap_p.containsPoints([0; 0]), "Contains origin");
+      testCase.assertTrue(p_cap_p.containsPoints([1; 1]), "Contains [1; 1]");
+      testCase.assertFalse(p_cap_p.containsPoints(1e4*[1; 1]), "Does not contain a large vector");
+      testCase.assertTrue(p_cap_p.containsPoints([1; 0]));
+      testCase.assertFalse(p_cap_p.containsPoints([0; 1]));
+      testCase.assertFalse(p_cap_p.containsPoints([-1; -1]));
     end % End of function.
     
   end % End of test methods

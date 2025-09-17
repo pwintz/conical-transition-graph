@@ -1,18 +1,20 @@
 % rng(1);
 randomize_matrices = false;
-randomize_matrices = true;
+% randomize_matrices = true;
 randomize_matrices = ~exist("Ac", "var") || ~exist("Ad", "var") || ~all(size(Ac) == [2, 2]) || randomize_matrices;
 if randomize_matrices
   Ac = randn(2, 2);
   Ad = randn(2, 2);
 end
 
-Ac = [-1, -0.6; 
-       5, -1]
-Ad = [
-  -1, 1;
-  -0.5, -5;
-]
+is_reconstruct_conic_abstraction = false || ~exist("conic_abstraction", "var");
+
+% Ac = [-1, -0.6; 
+%        5, -1]
+% Ad = [
+%   -1, 1;
+%   -0.5, -5;
+% ]
 
 % ! These matrices result in a nice alignment of C, D, and G(D). 
 % Ac = [
@@ -39,14 +41,16 @@ end
 % conical_partition = ConicalPartition.fromNumSlices(10);
 flow_set_angles = [0, pi];
 jump_set_angles = [pi-0.2, pi+0.0];
-conic_abstraction = ConicAbstraction.fromAngles2D(...
-  "flowMapMatrix", Ac, ...
-  "jumpMapMatrix", Ad, ...
-  "flowSetAngles", flow_set_angles, ...
-  "jumpSetAngles", jump_set_angles, ...
-  "maxStateConeAngle", 2*pi/4, ...
-  "maxDerivativeConeAngle", 2*pi/100 ...
-);
+if is_reconstruct_conic_abstraction
+  conic_abstraction = ConicAbstraction.fromAngles2D(...
+    "flowMapMatrix", Ac, ...
+    "jumpMapMatrix", Ad, ...
+    "flowSetAngles", flow_set_angles, ...
+    "jumpSetAngles", jump_set_angles, ...
+    "maxStateConeAngle", 2*pi/4, ...
+    "maxDerivativeConeAngle", 2*pi/100 ...
+  );
+end
 conical_partition = conic_abstraction.conical_partition;
 flow_graph        = conic_abstraction.flow_transition_graph;
 jump_graph        = conic_abstraction.jump_transition_graph;
@@ -62,9 +66,6 @@ hold on;
 conic_abstraction.plotCones();
 conic_abstraction.flow_transition_graph.plot();
 conic_abstraction.jump_transition_graph.plot();
-
-conic_abstraction.hasStableFlows()
-
 
 % ╭───────────────────────────────────────────────────────────────────────╮
 % │             Test why one edge was missing from flow graph             │
@@ -155,8 +156,6 @@ hold on;
 pwintz.plots.plotUnitCircle();
 pwintz.plots.plotLinearVectorField(Ac);
 conic_abstraction.plotCones();
-
-
 conic_abstraction.ctg.plot();
 conic_abstraction.plotConesReachableFromVertices();
 % conic_abstraction.plotVerticesReachableFromCones();
@@ -165,8 +164,8 @@ conic_abstraction.plotConesReachableFromVertices();
 
 % contracted_flow_transition_graph.plot();
 
-pwintz.strings.format("      n_flow_set_cones: %d\t       flow_set_cone_ndxs: %d", conic_abstraction.n_flow_set_cones, conic_abstraction.flow_set_cone_ndxs)
-pwintz.strings.format("      n_jump_set_cones: %d\t       jump_set_cone_ndxs: %d", conic_abstraction.n_jump_set_cones, conic_abstraction.jump_set_cone_ndxs)
+pwintz.strings.format("      n_flow_set_cones: %d\n\t       flow_set_cone_ndxs: %d", conic_abstraction.n_flow_set_cones, conic_abstraction.flow_set_cone_ndxs)
+pwintz.strings.format("      n_jump_set_cones: %d\n\t       jump_set_cone_ndxs: %d", conic_abstraction.n_jump_set_cones, conic_abstraction.jump_set_cone_ndxs)
 pwintz.strings.format("n_jump_set_image_cones: %d\t jump_set_image_cone_ndxs: %d", conic_abstraction.n_jump_set_image_cones, conic_abstraction.jump_set_image_cone_ndxs)
 
 if  conic_abstraction.hasStableFlows()
@@ -245,7 +244,7 @@ for ray_ndx = conical_partition.ray_indices
     % ray.plot()
     drawnow();
     pause(1);
-    % testCase.assertTrue(cone.contains(ray));
+    % testCase.assertTrue(cone.containsPoints(ray));
     
   end
 end

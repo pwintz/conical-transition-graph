@@ -1,4 +1,4 @@
-classdef TestTrueFalseIndeterminate < pwintz.unittest.PWintzTestCase
+classdef TestTrueFalseIndeterminate < pwintz.unittest.TestCase
 % ! To run tests
 % ` runtests TestTrueFalseIndeterminate
 
